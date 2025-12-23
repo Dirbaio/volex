@@ -1,0 +1,431 @@
+[
+  {
+    "type": "SimpleUnion",
+    "description": "simple: u8(0)",
+    "hex": "0800",
+    "json": {
+      "$tag": "U8",
+      "$value": 0
+    }
+  },
+  {
+    "type": "SimpleUnion",
+    "description": "simple: u8(255)",
+    "hex": "08ff",
+    "json": {
+      "$tag": "U8",
+      "$value": 255
+    }
+  },
+  {
+    "type": "SimpleUnion",
+    "description": "simple: u32(1000)",
+    "hex": "11e807",
+    "json": {
+      "$tag": "U32",
+      "$value": 1000
+    }
+  },
+  {
+    "type": "SimpleUnion",
+    "description": "simple: f32(3.14)",
+    "hex": "1ac3f54840",
+    "json": {
+      "$tag": "F32",
+      "$value": 3.140000104904175
+    }
+  },
+  {
+    "type": "SimpleUnion",
+    "description": "simple: f64(2.71828)",
+    "hex": "2390f7aa9509bf0540",
+    "json": {
+      "$tag": "F64",
+      "$value": 2.71828
+    }
+  },
+  {
+    "type": "SimpleUnion",
+    "description": "simple: string(empty)",
+    "hex": "2c00",
+    "json": {
+      "$tag": "String",
+      "$value": ""
+    }
+  },
+  {
+    "type": "SimpleUnion",
+    "description": "simple: string(hello)",
+    "hex": "2c0568656c6c6f",
+    "json": {
+      "$tag": "String",
+      "$value": "hello"
+    }
+  },
+  {
+    "type": "WithUnit",
+    "description": "with unit: none",
+    "hex": "0f",
+    "json": {
+      "$tag": "None"
+    }
+  },
+  {
+    "type": "WithUnit",
+    "description": "with unit: some(42)",
+    "hex": "112a",
+    "json": {
+      "$tag": "Some",
+      "$value": 42
+    }
+  },
+  {
+    "type": "Shape",
+    "description": "shape: point",
+    "hex": "0c080000803f00000040",
+    "json": {
+      "$tag": "Point",
+      "$value": {
+        "x": 1.0,
+        "y": 2.0
+      }
+    }
+  },
+  {
+    "type": "Shape",
+    "description": "shape: circle",
+    "hex": "120000a040",
+    "json": {
+      "$tag": "Circle",
+      "$value": 5.0
+    }
+  },
+  {
+    "type": "Data",
+    "description": "data: number",
+    "hex": "09b960",
+    "json": {
+      "$tag": "Number",
+      "$value": 12345
+    }
+  },
+  {
+    "type": "Data",
+    "description": "data: text",
+    "hex": "140b68656c6c6f20776f726c64",
+    "json": {
+      "$tag": "Text",
+      "$value": "hello world"
+    }
+  },
+  {
+    "type": "Data",
+    "description": "data: meta",
+    "hex": "1d0c046e616d651405616c69636500",
+    "json": {
+      "$tag": "Meta",
+      "$value": {
+        "key": "name",
+        "value": "alice"
+      }
+    }
+  },
+  {
+    "type": "Container",
+    "description": "container: fixed array empty",
+    "hex": "0c00",
+    "json": {
+      "$tag": "FixedArray",
+      "$value": []
+    }
+  },
+  {
+    "type": "Container",
+    "description": "container: fixed array values",
+    "hex": "0c04010203ff",
+    "json": {
+      "$tag": "FixedArray",
+      "$value": [
+        1,
+        2,
+        3,
+        255
+      ]
+    }
+  },
+  {
+    "type": "Container",
+    "description": "container: variable array empty",
+    "hex": "140100",
+    "json": {
+      "$tag": "VariableArray",
+      "$value": []
+    }
+  },
+  {
+    "type": "Container",
+    "description": "container: variable array values",
+    "hex": "140703016101620163",
+    "json": {
+      "$tag": "VariableArray",
+      "$value": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  },
+  {
+    "type": "Inner",
+    "description": "inner: A(10)",
+    "hex": "080a",
+    "json": {
+      "$tag": "A",
+      "$value": 10
+    }
+  },
+  {
+    "type": "Inner",
+    "description": "inner: B(1000)",
+    "hex": "11e807",
+    "json": {
+      "$tag": "B",
+      "$value": 1000
+    }
+  },
+  {
+    "type": "Outer",
+    "description": "outer: inner A",
+    "hex": "0e0805",
+    "json": {
+      "$tag": "Inner",
+      "$value": {
+        "$tag": "A",
+        "$value": 5
+      }
+    }
+  },
+  {
+    "type": "Outer",
+    "description": "outer: value",
+    "hex": "11e707",
+    "json": {
+      "$tag": "Value",
+      "$value": 999
+    }
+  },
+  {
+    "type": "ResultWrapper",
+    "description": "result wrapper: u8",
+    "hex": "01082a",
+    "json": {
+      "id": 1,
+      "result": {
+        "$tag": "U8",
+        "$value": 42
+      }
+    }
+  },
+  {
+    "type": "ResultWrapper",
+    "description": "result wrapper: string",
+    "hex": "022c0474657374",
+    "json": {
+      "id": 2,
+      "result": {
+        "$tag": "String",
+        "$value": "test"
+      }
+    }
+  },
+  {
+    "type": "Response",
+    "description": "response: u32",
+    "hex": "09641611f40300",
+    "json": {
+      "data": {
+        "$tag": "U32",
+        "$value": 500
+      },
+      "id": 100
+    }
+  },
+  {
+    "type": "Response",
+    "description": "response: f64",
+    "hex": "09c80116236e861bf0f921094000",
+    "json": {
+      "data": {
+        "$tag": "F64",
+        "$value": 3.14159
+      },
+      "id": 200
+    }
+  },
+  {
+    "type": "OptionalUnion",
+    "description": "optional union: none",
+    "hex": "00",
+    "json": {
+      "value": null
+    }
+  },
+  {
+    "type": "OptionalUnion",
+    "description": "optional union: some(u8)",
+    "hex": "01087b",
+    "json": {
+      "value": {
+        "$tag": "U8",
+        "$value": 123
+      }
+    }
+  },
+  {
+    "type": "OptionalUnion",
+    "description": "optional union: some(string)",
+    "hex": "012c086f7074696f6e616c",
+    "json": {
+      "value": {
+        "$tag": "String",
+        "$value": "optional"
+      }
+    }
+  },
+  {
+    "type": "UnionList",
+    "description": "union list: empty",
+    "hex": "00",
+    "json": {
+      "items": []
+    }
+  },
+  {
+    "type": "UnionList",
+    "description": "union list: mixed",
+    "hex": "03080111642c0474657374",
+    "json": {
+      "items": [
+        {
+          "$tag": "U8",
+          "$value": 1
+        },
+        {
+          "$tag": "U32",
+          "$value": 100
+        },
+        {
+          "$tag": "String",
+          "$value": "test"
+        }
+      ]
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: fixed8",
+    "hex": "082a",
+    "json": {
+      "$tag": "Fixed8",
+      "$value": 42
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: bool",
+    "hex": "1001",
+    "json": {
+      "$tag": "Fixed8Bool",
+      "$value": true
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: varint16",
+    "hex": "19ac02",
+    "json": {
+      "$tag": "Varint16",
+      "$value": 300
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: varint32",
+    "hex": "21f0a204",
+    "json": {
+      "$tag": "Varint32",
+      "$value": 70000
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: varint64",
+    "hex": "29ffc7afa025",
+    "json": {
+      "$tag": "Varint64",
+      "$value": 9999999999
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: fixed32",
+    "hex": "320000c03f",
+    "json": {
+      "$tag": "Fixed32",
+      "$value": 1.5
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: fixed64",
+    "hex": "3b0000000000000440",
+    "json": {
+      "$tag": "Fixed64",
+      "$value": 2.5
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: bytes",
+    "hex": "440464617461",
+    "json": {
+      "$tag": "Bytes",
+      "$value": "data"
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire: unit",
+    "hex": "4f",
+    "json": {
+      "$tag": "Unit"
+    }
+  },
+  {
+    "type": "SparseUnion",
+    "description": "sparse: first",
+    "hex": "0801",
+    "json": {
+      "$tag": "First",
+      "$value": 1
+    }
+  },
+  {
+    "type": "SparseUnion",
+    "description": "sparse: second",
+    "hex": "5002",
+    "json": {
+      "$tag": "Second",
+      "$value": 2
+    }
+  },
+  {
+    "type": "SparseUnion",
+    "description": "sparse: third",
+    "hex": "a00603",
+    "json": {
+      "$tag": "Third",
+      "$value": 3
+    }
+  }
+]

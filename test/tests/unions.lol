@@ -1,0 +1,98 @@
+// Comprehensive union tests
+
+// Simple union with different wire types
+union SimpleUnion {
+    U8(u8) = 1          // FIXED8
+    U32(u32) = 2        // VARINT
+    F32(f32) = 3        // FIXED32
+    F64(f64) = 4        // FIXED64
+    String(string) = 5  // BYTES
+}
+
+// Union with unit variant
+union WithUnit {
+    None = 1           // UNIT (wire type 7)
+    Some(u32) = 2      // VARINT
+}
+
+// Union with struct payload
+struct Point {
+    x: f32
+    y: f32
+}
+
+union Shape {
+    Point(Point) = 1    // BYTES (struct is 8 bytes, fixed-size)
+    Circle(f32) = 2     // FIXED32
+}
+
+// Union with message payload
+message Metadata {
+    key: string = 1
+    value: string = 2
+}
+
+union Data {
+    Number(u64) = 1           // VARINT
+    Text(string) = 2          // BYTES
+    Meta(Metadata) = 3        // MESSAGE
+}
+
+// Union with array payloads
+union Container {
+    FixedArray([u8]) = 1      // BYTES (no count for fixed-size elements)
+    VariableArray([string]) = 2  // BYTES (with count for variable-size elements)
+}
+
+// Nested unions
+union Inner {
+    A(u8) = 1
+    B(u16) = 2
+}
+
+union Outer {
+    Inner(Inner) = 1   // UNION
+    Value(u32) = 2     // VARINT
+}
+
+// Union in struct
+struct ResultWrapper {
+    id: u32
+    result: SimpleUnion
+}
+
+// Union in message
+message Response {
+    id: u32 = 1
+    data: SimpleUnion = 2
+}
+
+// Optional union
+struct OptionalUnion {
+    value?: SimpleUnion
+}
+
+// Array of unions
+struct UnionList {
+    items: [SimpleUnion]
+}
+
+// Testing all wire types in union context
+union AllWireTypes {
+    Fixed8(u8) = 1       // FIXED8
+    Fixed8Bool(bool) = 2 // FIXED8
+    Varint16(u16) = 3    // VARINT
+    Varint32(u32) = 4    // VARINT
+    Varint64(u64) = 5    // VARINT
+    Fixed32(f32) = 6     // FIXED32
+    Fixed64(f64) = 7     // FIXED64
+    Bytes(string) = 8    // BYTES
+    Unit = 9             // UNIT
+}
+
+// Sparse indices
+union SparseUnion {
+    First(u8) = 1
+    Second(u8) = 10
+    Third(u8) = 100
+}

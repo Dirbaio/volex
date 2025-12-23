@@ -1,0 +1,133 @@
+// Comprehensive primitives test schema
+
+// Test all fixed-size types
+struct AllBools {
+    false_val: bool
+    true_val: bool
+}
+
+struct AllU8 {
+    zero: u8
+    small: u8
+    max: u8
+}
+
+struct AllI8 {
+    zero: i8
+    positive: i8
+    negative: i8
+    max: i8
+    min: i8
+}
+
+struct AllF32 {
+    zero: f32
+    one: f32
+    negative: f32
+    pi: f32
+    max: f32
+    min: f32
+    infinity: f32
+    neg_infinity: f32
+}
+
+struct AllF64 {
+    zero: f64
+    one: f64
+    negative: f64
+    pi: f64
+    max: f64
+    min: f64
+    infinity: f64
+    neg_infinity: f64
+}
+
+// Test varint types
+struct AllU16 {
+    zero: u16
+    one: u16
+    small: u16
+    boundary_127: u16
+    boundary_128: u16
+    boundary_16383: u16
+    boundary_16384: u16
+    max: u16
+}
+
+struct AllU32 {
+    zero: u32
+    one: u32
+    small: u32
+    boundary_127: u32
+    boundary_128: u32
+    large: u32
+    max: u32
+}
+
+struct AllU64 {
+    zero: u64
+    one: u64
+    small: u64
+    boundary_127: u64
+    boundary_128: u64
+    large: u64
+    max: u64
+}
+
+struct AllI16 {
+    zero: i16
+    positive: i16
+    negative: i16
+    neg_one: i16
+    max: i16
+    min: i16
+}
+
+struct AllI32 {
+    zero: i32
+    positive: i32
+    negative: i32
+    neg_one: i32
+    max: i32
+    min: i32
+}
+
+struct AllI64 {
+    zero: i64
+    positive: i64
+    negative: i64
+    neg_one: i64
+    max: i64
+    min: i64
+}
+
+// Test string
+struct StringTests {
+    empty: string
+    short: string
+    with_unicode: string
+}
+
+// Test arrays with fixed-size elements
+struct ArrayU8 {
+    values: [u8]
+}
+
+struct ArrayF32 {
+    values: [f32]
+}
+
+// Test arrays with variable-size elements
+struct ArrayString {
+    values: [string]
+}
+
+// Test maps with fixed-size key-value
+struct MapU8U8 {
+    values: {u8: u8}
+}
+
+// Test maps with variable-size
+struct MapStringU32 {
+    values: {string: u32}
+}

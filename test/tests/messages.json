@@ -1,0 +1,389 @@
+[
+  {
+    "type": "EmptyMessage",
+    "description": "empty message",
+    "hex": "00",
+    "json": {}
+  },
+  {
+    "type": "SingleU8",
+    "description": "single u8 field: 0",
+    "hex": "080000",
+    "json": {
+      "value": 0
+    }
+  },
+  {
+    "type": "SingleU8",
+    "description": "single u8 field: 255",
+    "hex": "08ff00",
+    "json": {
+      "value": 255
+    }
+  },
+  {
+    "type": "SingleU32",
+    "description": "single u32 field: 0",
+    "hex": "090000",
+    "json": {
+      "value": 0
+    }
+  },
+  {
+    "type": "SingleU32",
+    "description": "single u32 field: 1000",
+    "hex": "09e80700",
+    "json": {
+      "value": 1000
+    }
+  },
+  {
+    "type": "SingleF32",
+    "description": "single f32 field: 0.0",
+    "hex": "0a0000000000",
+    "json": {
+      "value": 0.0
+    }
+  },
+  {
+    "type": "SingleF32",
+    "description": "single f32 field: 3.14",
+    "hex": "0ac3f5484000",
+    "json": {
+      "value": 3.140000104904175
+    }
+  },
+  {
+    "type": "SingleF64",
+    "description": "single f64 field: 0.0",
+    "hex": "0b000000000000000000",
+    "json": {
+      "value": 0.0
+    }
+  },
+  {
+    "type": "SingleF64",
+    "description": "single f64 field: 3.14159",
+    "hex": "0b6e861bf0f921094000",
+    "json": {
+      "value": 3.14159
+    }
+  },
+  {
+    "type": "SingleString",
+    "description": "single string field: empty",
+    "hex": "0c0000",
+    "json": {
+      "value": ""
+    }
+  },
+  {
+    "type": "SingleString",
+    "description": "single string field: hello",
+    "hex": "0c0568656c6c6f00",
+    "json": {
+      "value": "hello"
+    }
+  },
+  {
+    "type": "SingleArray",
+    "description": "single array field: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "SingleArray",
+    "description": "single array field: multiple",
+    "hex": "0c070501020364e80700",
+    "json": {
+      "values": [
+        1,
+        2,
+        3,
+        100,
+        1000
+      ]
+    }
+  },
+  {
+    "type": "SingleArrayFixed",
+    "description": "single fixed array: empty",
+    "hex": "0c0000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "SingleArrayFixed",
+    "description": "single fixed array: multiple",
+    "hex": "0c0400017fff00",
+    "json": {
+      "values": [
+        0,
+        1,
+        127,
+        255
+      ]
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire types: zeros",
+    "hex": "080011001a000000002300000000000000002c0000",
+    "json": {
+      "bytes": "",
+      "fixed32": 0.0,
+      "fixed64": 0.0,
+      "fixed8": 0,
+      "varint": 0
+    }
+  },
+  {
+    "type": "AllWireTypes",
+    "description": "all wire types: values",
+    "hex": "082a11e8071ac3f548402390f7aa9509bf05402c047465737400",
+    "json": {
+      "fixed8": 42,
+      "varint": 1000,
+      "fixed32": 3.140000104904175,
+      "fixed64": 2.71828,
+      "bytes": "test"
+    }
+  },
+  {
+    "type": "OptionalFields",
+    "description": "optional: all none",
+    "hex": "097b00",
+    "json": {
+      "optional_age": null,
+      "optional_name": null,
+      "required_id": 123
+    }
+  },
+  {
+    "type": "OptionalFields",
+    "description": "optional: name only",
+    "hex": "09c8031405416c69636500",
+    "json": {
+      "optional_age": null,
+      "optional_name": "Alice",
+      "required_id": 456
+    }
+  },
+  {
+    "type": "OptionalFields",
+    "description": "optional: all some",
+    "hex": "0995061403426f62181e00",
+    "json": {
+      "optional_age": 30,
+      "optional_name": "Bob",
+      "required_id": 789
+    }
+  },
+  {
+    "type": "NestedStruct",
+    "description": "nested struct",
+    "hex": "090114080000c03f0000204000",
+    "json": {
+      "id": 1,
+      "point": {
+        "x": 1.5,
+        "y": 2.5
+      }
+    }
+  },
+  {
+    "type": "NestedMessage",
+    "description": "nested message",
+    "hex": "092a1509640000",
+    "json": {
+      "id": 42,
+      "inner": {
+        "value": 100
+      }
+    }
+  },
+  {
+    "type": "WithDefaults",
+    "description": "defaults: all fields present",
+    "hex": "090a140568656c6c6f180124040301020300",
+    "json": {
+      "flag": true,
+      "list": [
+        1,
+        2,
+        3
+      ],
+      "number": 10,
+      "text": "hello"
+    }
+  },
+  {
+    "type": "WithDefaults",
+    "description": "defaults: only number",
+    "hex": "09051400180024010000",
+    "json": {
+      "flag": false,
+      "list": [],
+      "number": 5,
+      "text": ""
+    }
+  },
+  {
+    "type": "WithDefaults",
+    "description": "defaults: all defaults",
+    "hex": "09001400180024010000",
+    "json": {
+      "flag": false,
+      "list": [],
+      "number": 0,
+      "text": ""
+    }
+  },
+  {
+    "type": "FieldOrdering",
+    "description": "field ordering test",
+    "hex": "096411c80119ac0200",
+    "json": {
+      "field1": 100,
+      "field2": 200,
+      "field3": 300
+    }
+  },
+  {
+    "type": "SparseIndices",
+    "description": "sparse indices",
+    "hex": "0901510aa1066400",
+    "json": {
+      "field1": 1,
+      "field10": 10,
+      "field100": 100
+    }
+  },
+  {
+    "type": "ArraysInMessage",
+    "description": "arrays: both empty",
+    "hex": "0c0014010000",
+    "json": {
+      "fixed_array": [],
+      "variable_array": []
+    }
+  },
+  {
+    "type": "ArraysInMessage",
+    "description": "arrays: with values",
+    "hex": "0c0301020314070301610162016300",
+    "json": {
+      "fixed_array": [
+        1,
+        2,
+        3
+      ],
+      "variable_array": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  },
+  {
+    "type": "StringInMessage",
+    "description": "string in message: empty",
+    "hex": "0901140000",
+    "json": {
+      "id": 1,
+      "name": ""
+    }
+  },
+  {
+    "type": "StringInMessage",
+    "description": "string in message: unicode",
+    "hex": "0902140c48656c6c6f20e4b896e7958c00",
+    "json": {
+      "id": 2,
+      "name": "Hello 世界"
+    }
+  },
+  {
+    "type": "UserProfile",
+    "description": "user profile: minimal",
+    "hex": "09011405616c696365200000",
+    "json": {
+      "email": null,
+      "id": 1,
+      "metadata": null,
+      "username": "alice",
+      "verified": false
+    }
+  },
+  {
+    "type": "UserProfile",
+    "description": "user profile: complete",
+    "hex": "09021403626f621c0f626f62406578616d706c652e636f6d20012d09011509e707000000",
+    "json": {
+      "email": "bob@example.com",
+      "id": 2,
+      "metadata": {
+        "id": 1,
+        "inner": {
+          "value": 999
+        }
+      },
+      "username": "bob",
+      "verified": true
+    }
+  },
+  {
+    "type": "AllOptionalMessage",
+    "description": "all optional: none",
+    "hex": "00",
+    "json": {
+      "opt1": null,
+      "opt2": null,
+      "opt3": null
+    }
+  },
+  {
+    "type": "AllOptionalMessage",
+    "description": "all optional: all some",
+    "hex": "092a140474657374180100",
+    "json": {
+      "opt1": 42,
+      "opt2": "test",
+      "opt3": true
+    }
+  },
+  {
+    "type": "VersionedMessage",
+    "description": "versioned message v1",
+    "hex": "090114077631206461746100",
+    "json": {
+      "data": "v1 data",
+      "version": 1
+    }
+  },
+  {
+    "type": "ExtendedVersionedMessage",
+    "description": "extended: base fields only",
+    "hex": "090114046261736500",
+    "json": {
+      "data": "base",
+      "extra_field": null,
+      "new_field": null,
+      "version": 1
+    }
+  },
+  {
+    "type": "ExtendedVersionedMessage",
+    "description": "extended: all fields",
+    "hex": "09021408657874656e646564197b24036e657700",
+    "json": {
+      "data": "extended",
+      "extra_field": 123,
+      "new_field": "new",
+      "version": 2
+    }
+  }
+]

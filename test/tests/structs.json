@@ -1,0 +1,422 @@
+[
+  {
+    "type": "Empty",
+    "description": "empty struct",
+    "hex": "",
+    "json": {}
+  },
+  {
+    "type": "SingleU8",
+    "description": "single u8 field: zero",
+    "hex": "00",
+    "json": {
+      "value": 0
+    }
+  },
+  {
+    "type": "SingleU8",
+    "description": "single u8 field: max",
+    "hex": "ff",
+    "json": {
+      "value": 255
+    }
+  },
+  {
+    "type": "SingleString",
+    "description": "single string field: empty",
+    "hex": "00",
+    "json": {
+      "value": ""
+    }
+  },
+  {
+    "type": "SingleString",
+    "description": "single string field: hello",
+    "hex": "0568656c6c6f",
+    "json": {
+      "value": "hello"
+    }
+  },
+  {
+    "type": "Point2D",
+    "description": "2D point at origin",
+    "hex": "0000000000000000",
+    "json": {
+      "x": 0.0,
+      "y": 0.0
+    }
+  },
+  {
+    "type": "Point2D",
+    "description": "2D point with values",
+    "hex": "0000c03f000020c0",
+    "json": {
+      "x": 1.5,
+      "y": -2.5
+    }
+  },
+  {
+    "type": "Point3D",
+    "description": "3D point at origin",
+    "hex": "000000000000000000000000",
+    "json": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    }
+  },
+  {
+    "type": "Point3D",
+    "description": "3D point with values",
+    "hex": "0000803f0000004000004040",
+    "json": {
+      "x": 1.0,
+      "y": 2.0,
+      "z": 3.0
+    }
+  },
+  {
+    "type": "Person",
+    "description": "person with all fields",
+    "hex": "1e05416c6963653333d33f",
+    "json": {
+      "age": 30,
+      "name": "Alice",
+      "height": 1.649999976158142
+    }
+  },
+  {
+    "type": "Person",
+    "description": "person with empty name",
+    "hex": "000000000000",
+    "json": {
+      "age": 0,
+      "height": 0.0,
+      "name": ""
+    }
+  },
+  {
+    "type": "Line",
+    "description": "line with nested points",
+    "hex": "00000000000000000000204100002041",
+    "json": {
+      "end": {
+        "x": 10.0,
+        "y": 10.0
+      },
+      "start": {
+        "x": 0.0,
+        "y": 0.0
+      }
+    }
+  },
+  {
+    "type": "Transform",
+    "description": "transform with position and scale",
+    "hex": "0000803f00000040000040400000803f0000803f0000803f",
+    "json": {
+      "position": {
+        "x": 1.0,
+        "y": 2.0,
+        "z": 3.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      }
+    }
+  },
+  {
+    "type": "OptionalU8",
+    "description": "optional u8: none",
+    "hex": "00",
+    "json": {
+      "value": null
+    }
+  },
+  {
+    "type": "OptionalU8",
+    "description": "optional u8: some(0)",
+    "hex": "0100",
+    "json": {
+      "value": 0
+    }
+  },
+  {
+    "type": "OptionalU8",
+    "description": "optional u8: some(255)",
+    "hex": "01ff",
+    "json": {
+      "value": 255
+    }
+  },
+  {
+    "type": "OptionalString",
+    "description": "optional string: none",
+    "hex": "00",
+    "json": {
+      "value": null
+    }
+  },
+  {
+    "type": "OptionalString",
+    "description": "optional string: some(empty)",
+    "hex": "0100",
+    "json": {
+      "value": ""
+    }
+  },
+  {
+    "type": "OptionalString",
+    "description": "optional string: some(hello)",
+    "hex": "010568656c6c6f",
+    "json": {
+      "value": "hello"
+    }
+  },
+  {
+    "type": "User",
+    "description": "user: all fields none",
+    "hex": "000105616c696365",
+    "json": {
+      "age": null,
+      "email": null,
+      "id": 1,
+      "username": "alice"
+    }
+  },
+  {
+    "type": "User",
+    "description": "user: email only",
+    "hex": "010203626f620f626f62406578616d706c652e636f6d",
+    "json": {
+      "age": null,
+      "email": "bob@example.com",
+      "id": 2,
+      "username": "bob"
+    }
+  },
+  {
+    "type": "User",
+    "description": "user: age only",
+    "hex": "020307636861726c696519",
+    "json": {
+      "age": 25,
+      "email": null,
+      "id": 3,
+      "username": "charlie"
+    }
+  },
+  {
+    "type": "User",
+    "description": "user: all fields some",
+    "hex": "030404646176651064617665406578616d706c652e636f6d1e",
+    "json": {
+      "age": 30,
+      "email": "dave@example.com",
+      "id": 4,
+      "username": "dave"
+    }
+  },
+  {
+    "type": "Config",
+    "description": "config: all none",
+    "hex": "00",
+    "json": {
+      "enabled": null,
+      "endpoint": null,
+      "retry_count": null,
+      "timeout": null
+    }
+  },
+  {
+    "type": "Config",
+    "description": "config: timeout only",
+    "hex": "018827",
+    "json": {
+      "enabled": null,
+      "endpoint": null,
+      "retry_count": null,
+      "timeout": 5000
+    }
+  },
+  {
+    "type": "Config",
+    "description": "config: all some",
+    "hex": "0fb817031768747470733a2f2f6170692e6578616d706c652e636f6d01",
+    "json": {
+      "enabled": true,
+      "endpoint": "https://api.example.com",
+      "retry_count": 3,
+      "timeout": 3000
+    }
+  },
+  {
+    "type": "AllOptional",
+    "description": "all optional: all none",
+    "hex": "00",
+    "json": {
+      "a": null,
+      "b": null,
+      "c": null
+    }
+  },
+  {
+    "type": "AllOptional",
+    "description": "all optional: first only",
+    "hex": "012a",
+    "json": {
+      "a": 42,
+      "b": null,
+      "c": null
+    }
+  },
+  {
+    "type": "AllOptional",
+    "description": "all optional: last only",
+    "hex": "040474657374",
+    "json": {
+      "a": null,
+      "b": null,
+      "c": "test"
+    }
+  },
+  {
+    "type": "AllOptional",
+    "description": "all optional: all some",
+    "hex": "070102057468726565",
+    "json": {
+      "a": 1,
+      "b": 2,
+      "c": "three"
+    }
+  },
+  {
+    "type": "ManyOptionals",
+    "description": "many optionals: all none",
+    "hex": "0000",
+    "json": {
+      "f1": null,
+      "f10": null,
+      "f2": null,
+      "f3": null,
+      "f4": null,
+      "f5": null,
+      "f6": null,
+      "f7": null,
+      "f8": null,
+      "f9": null
+    }
+  },
+  {
+    "type": "ManyOptionals",
+    "description": "many optionals: first 8 some",
+    "hex": "ff000102030405060708",
+    "json": {
+      "f1": 1,
+      "f10": null,
+      "f2": 2,
+      "f3": 3,
+      "f4": 4,
+      "f5": 5,
+      "f6": 6,
+      "f7": 7,
+      "f8": 8,
+      "f9": null
+    }
+  },
+  {
+    "type": "ManyOptionals",
+    "description": "many optionals: last 2 some",
+    "hex": "0003090a",
+    "json": {
+      "f1": null,
+      "f10": 10,
+      "f2": null,
+      "f3": null,
+      "f4": null,
+      "f5": null,
+      "f6": null,
+      "f7": null,
+      "f8": null,
+      "f9": 9
+    }
+  },
+  {
+    "type": "ManyOptionals",
+    "description": "many optionals: all some",
+    "hex": "ff030102030405060708090a",
+    "json": {
+      "f1": 1,
+      "f10": 10,
+      "f2": 2,
+      "f3": 3,
+      "f4": 4,
+      "f5": 5,
+      "f6": 6,
+      "f7": 7,
+      "f8": 8,
+      "f9": 9
+    }
+  },
+  {
+    "type": "Profile",
+    "description": "profile: minimal",
+    "hex": "000105416c69636500",
+    "json": {
+      "bio": null,
+      "display_name": "Alice",
+      "location": null,
+      "user_id": 1,
+      "verified": false
+    }
+  },
+  {
+    "type": "Profile",
+    "description": "profile: with bio",
+    "hex": "010203426f6212536f66747761726520646576656c6f70657201",
+    "json": {
+      "bio": "Software developer",
+      "display_name": "Bob",
+      "location": null,
+      "user_id": 2,
+      "verified": true
+    }
+  },
+  {
+    "type": "Profile",
+    "description": "profile: complete",
+    "hex": "030307436861726c69650c4c6f766520636f64696e67210d53616e204672616e636973636f01",
+    "json": {
+      "bio": "Love coding!",
+      "display_name": "Charlie",
+      "location": "San Francisco",
+      "user_id": 3,
+      "verified": true
+    }
+  },
+  {
+    "type": "Container",
+    "description": "container: no point",
+    "hex": "00010a636f6e7461696e657231",
+    "json": {
+      "id": 1,
+      "name": "container1",
+      "point": null
+    }
+  },
+  {
+    "type": "Container",
+    "description": "container: with point",
+    "hex": "01020000a040000020410a636f6e7461696e657232",
+    "json": {
+      "id": 2,
+      "name": "container2",
+      "point": {
+        "x": 5.0,
+        "y": 10.0
+      }
+    }
+  }
+]

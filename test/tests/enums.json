@@ -1,0 +1,160 @@
+[
+  {
+    "type": "Status",
+    "description": "status: idle",
+    "hex": "00",
+    "json": "Idle"
+  },
+  {
+    "type": "Status",
+    "description": "status: active",
+    "hex": "01",
+    "json": "Active"
+  },
+  {
+    "type": "Status",
+    "description": "status: paused",
+    "hex": "02",
+    "json": "Paused"
+  },
+  {
+    "type": "Status",
+    "description": "status: stopped",
+    "hex": "03",
+    "json": "Stopped"
+  },
+  {
+    "type": "Priority",
+    "description": "priority: low",
+    "hex": "00",
+    "json": "Low"
+  },
+  {
+    "type": "Priority",
+    "description": "priority: medium",
+    "hex": "05",
+    "json": "Medium"
+  },
+  {
+    "type": "Priority",
+    "description": "priority: high",
+    "hex": "0a",
+    "json": "High"
+  },
+  {
+    "type": "Priority",
+    "description": "priority: critical",
+    "hex": "64",
+    "json": "Critical"
+  },
+  {
+    "type": "Unit",
+    "description": "unit: value",
+    "hex": "00",
+    "json": "Value"
+  },
+  {
+    "type": "Color",
+    "description": "color: red",
+    "hex": "00",
+    "json": "Red"
+  },
+  {
+    "type": "Color",
+    "description": "color: green",
+    "hex": "03",
+    "json": "Green"
+  },
+  {
+    "type": "Color",
+    "description": "color: white",
+    "hex": "08",
+    "json": "White"
+  },
+  {
+    "type": "Task",
+    "description": "task: idle low",
+    "hex": "010000",
+    "json": {
+      "id": 1,
+      "priority": "Low",
+      "status": "Idle"
+    }
+  },
+  {
+    "type": "Task",
+    "description": "task: active critical",
+    "hex": "640164",
+    "json": {
+      "id": 100,
+      "priority": "Critical",
+      "status": "Active"
+    }
+  },
+  {
+    "type": "Job",
+    "description": "job: paused high",
+    "hex": "092a1102190a00",
+    "json": {
+      "id": 42,
+      "priority": "High",
+      "status": "Paused"
+    }
+  },
+  {
+    "type": "Job",
+    "description": "job: stopped medium",
+    "hex": "09e7071103190500",
+    "json": {
+      "id": 999,
+      "priority": "Medium",
+      "status": "Stopped"
+    }
+  },
+  {
+    "type": "StatusList",
+    "description": "status list: empty",
+    "hex": "00",
+    "json": {
+      "statuses": []
+    }
+  },
+  {
+    "type": "StatusList",
+    "description": "status list: multiple",
+    "hex": "050001020103",
+    "json": {
+      "statuses": [
+        "Idle",
+        "Active",
+        "Paused",
+        "Active",
+        "Stopped"
+      ]
+    }
+  },
+  {
+    "type": "OptionalStatus",
+    "description": "optional status: none",
+    "hex": "00",
+    "json": {
+      "status": null
+    }
+  },
+  {
+    "type": "OptionalStatus",
+    "description": "optional status: some(idle)",
+    "hex": "0100",
+    "json": {
+      "status": "Idle"
+    }
+  },
+  {
+    "type": "OptionalStatus",
+    "description": "optional status: some(active)",
+    "hex": "0101",
+    "json": {
+      "status": "Active"
+    }
+  }
+]
