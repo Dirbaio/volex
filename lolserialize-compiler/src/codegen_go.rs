@@ -6,14 +6,14 @@ use crate::schema::*;
 
 fn wire_type_to_go_const(wire_type: WireType) -> &'static str {
     match wire_type {
-        WireType::Fixed8 => "WireFixed8",
-        WireType::Varint => "WireVarint",
-        WireType::Fixed32 => "WireFixed32",
-        WireType::Fixed64 => "WireFixed64",
-        WireType::Bytes => "WireBytes",
-        WireType::Message => "WireMessage",
-        WireType::Union => "WireUnion",
-        WireType::Unit => "WireUnit",
+        WireType::Fixed8 => "__rt.WireFixed8",
+        WireType::Varint => "__rt.WireVarint",
+        WireType::Fixed32 => "__rt.WireFixed32",
+        WireType::Fixed64 => "__rt.WireFixed64",
+        WireType::Bytes => "__rt.WireBytes",
+        WireType::Message => "__rt.WireMessage",
+        WireType::Union => "__rt.WireUnion",
+        WireType::Unit => "__rt.WireUnit",
     }
 }
 
@@ -52,7 +52,7 @@ impl<'a> GoCodeGenerator<'a> {
         if needs_json {
             self.output.push_str("\t\"encoding/json\"\n");
         }
-        self.output.push_str("\t. \"github.com/lolserialize/runtime\"\n");
+        self.output.push_str("\t__rt \"github.com/lolserialize/runtime\"\n");
         self.output.push_str(")\n\n");
 
         for item in &self.schema.items {
@@ -143,7 +143,7 @@ impl<'a> GoCodeGenerator<'a> {
                 write!(self.output, "s.{} != nil", to_pascal_case(&field.name.node)).unwrap();
             }
             self.output.push_str("}\n");
-            self.output.push_str("\tEncodePresenceBits(presence, buf)\n\n");
+            self.output.push_str("\t__rt.EncodePresenceBits(presence, buf)\n\n");
         }
 
         // Encode each field
@@ -180,7 +180,7 @@ impl<'a> GoCodeGenerator<'a> {
             writeln!(self.output, "\tvar presence []bool").unwrap();
             writeln!(
                 self.output,
-                "\tpresence, err = DecodePresenceBits({}, buf)",
+                "\tpresence, err = __rt.DecodePresenceBits({}, buf)",
                 optional_fields.len()
             )
             .unwrap();
@@ -256,7 +256,7 @@ impl<'a> GoCodeGenerator<'a> {
             }
         }
 
-        self.output.push_str("\tEncodeMessageEnd(buf)\n");
+        self.output.push_str("\t__rt.EncodeMessageEnd(buf)\n");
         self.output.push_str("}\n\n");
 
         // Generate Decode method
@@ -270,7 +270,7 @@ impl<'a> GoCodeGenerator<'a> {
 
         self.output.push_str("\tfor {\n");
         self.output
-            .push_str("\t\tindex, wireType, hasMore, err := DecodeTag(buf)\n");
+            .push_str("\t\tindex, wireType, hasMore, err := __rt.DecodeTag(buf)\n");
         writeln!(self.output, "\t\tif err != nil {{").unwrap();
         writeln!(self.output, "\t\t\treturn {}{{}}, err", m.name.node).unwrap();
         writeln!(self.output, "\t\t}}").unwrap();
@@ -292,7 +292,7 @@ impl<'a> GoCodeGenerator<'a> {
 
         self.output.push_str("\t\tdefault:\n");
         self.output
-            .push_str("\t\t\tif err := SkipByWireType(wireType, buf); err != nil {\n");
+            .push_str("\t\t\tif err := __rt.SkipByWireType(wireType, buf); err != nil {\n");
         writeln!(self.output, "\t\t\t\treturn {}{{}}, err", m.name.node).unwrap();
         self.output.push_str("\t\t\t}\n");
         self.output.push_str("\t\t}\n");
@@ -320,7 +320,7 @@ impl<'a> GoCodeGenerator<'a> {
 
         // Generate Encode method
         writeln!(self.output, "func (e {}) Encode(buf *[]byte) {{", e.name.node).unwrap();
-        self.output.push_str("\tEncodeU32(uint32(e), buf)\n");
+        self.output.push_str("\t__rt.EncodeU32(uint32(e), buf)\n");
         self.output.push_str("}\n\n");
 
         // Generate Decode method
@@ -330,7 +330,7 @@ impl<'a> GoCodeGenerator<'a> {
             e.name.node, e.name.node
         )
         .unwrap();
-        self.output.push_str("\tv, err := DecodeU32(buf)\n");
+        self.output.push_str("\tv, err := __rt.DecodeU32(buf)\n");
         self.output.push_str("\tif err != nil {\n\t\treturn 0, err\n\t}\n");
         self.output.push_str("\tswitch v {\n");
 
@@ -346,7 +346,7 @@ impl<'a> GoCodeGenerator<'a> {
         }
 
         self.output.push_str("\tdefault:\n");
-        self.output.push_str("\t\treturn 0, ErrUnknownEnumVariant\n");
+        self.output.push_str("\t\treturn 0, __rt.ErrUnknownEnumVariant\n");
         self.output.push_str("\t}\n");
         self.output.push_str("}\n\n");
 
@@ -364,7 +364,7 @@ impl<'a> GoCodeGenerator<'a> {
             writeln!(self.output, "\t\treturn []byte(\"\\\"{}\\\"\"), nil", variant.name.node).unwrap();
         }
         self.output.push_str("\tdefault:\n");
-        self.output.push_str("\t\treturn nil, ErrUnknownEnumVariant\n");
+        self.output.push_str("\t\treturn nil, __rt.ErrUnknownEnumVariant\n");
         self.output.push_str("\t}\n");
         self.output.push_str("}\n\n");
 
@@ -390,7 +390,7 @@ impl<'a> GoCodeGenerator<'a> {
             .unwrap();
         }
         self.output.push_str("\tdefault:\n");
-        self.output.push_str("\t\treturn ErrUnknownEnumVariant\n");
+        self.output.push_str("\t\treturn __rt.ErrUnknownEnumVariant\n");
         self.output.push_str("\t}\n");
         self.output.push_str("\treturn nil\n");
         self.output.push_str("}\n");
@@ -522,7 +522,7 @@ impl<'a> GoCodeGenerator<'a> {
             } else {
                 writeln!(
                     self.output,
-                    "\t\tEncodeTag({}, {}, buf)",
+                    "\t\t__rt.EncodeTag({}, {}, buf)",
                     index,
                     wire_type_to_go_const(WireType::Unit)
                 )
@@ -548,7 +548,7 @@ impl<'a> GoCodeGenerator<'a> {
             union_name, union_name
         )
         .unwrap();
-        writeln!(self.output, "\tindex, _, _, err := DecodeTag(buf)").unwrap();
+        writeln!(self.output, "\tindex, _, _, err := __rt.DecodeTag(buf)").unwrap();
         writeln!(self.output, "\tif err != nil {{").unwrap();
         writeln!(self.output, "\t\treturn {}{{}}, err", union_name).unwrap();
         writeln!(self.output, "\t}}").unwrap();
@@ -579,7 +579,7 @@ impl<'a> GoCodeGenerator<'a> {
         }
 
         writeln!(self.output, "\tdefault:").unwrap();
-        writeln!(self.output, "\t\treturn {}{{}}, ErrUnknownUnionVariant", union_name).unwrap();
+        writeln!(self.output, "\t\treturn {}{{}}, __rt.ErrUnknownUnionVariant", union_name).unwrap();
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "}}\n").unwrap();
 
@@ -718,7 +718,7 @@ impl<'a> GoCodeGenerator<'a> {
         }
 
         writeln!(self.output, "\tdefault:").unwrap();
-        writeln!(self.output, "\t\treturn ErrUnknownUnionVariant").unwrap();
+        writeln!(self.output, "\t\treturn __rt.ErrUnknownUnionVariant").unwrap();
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "}}\n").unwrap();
     }
@@ -726,26 +726,26 @@ impl<'a> GoCodeGenerator<'a> {
     fn encode_value(&mut self, value: &str, ty: &Type, indent: usize) {
         let tabs = "\t".repeat(indent);
         match ty {
-            Type::Bool => writeln!(self.output, "{}EncodeBool({}, buf)", tabs, value).unwrap(),
-            Type::U8 => writeln!(self.output, "{}EncodeU8({}, buf)", tabs, value).unwrap(),
-            Type::U16 => writeln!(self.output, "{}EncodeU16({}, buf)", tabs, value).unwrap(),
-            Type::U32 => writeln!(self.output, "{}EncodeU32({}, buf)", tabs, value).unwrap(),
-            Type::U64 => writeln!(self.output, "{}EncodeU64({}, buf)", tabs, value).unwrap(),
-            Type::I8 => writeln!(self.output, "{}EncodeI8({}, buf)", tabs, value).unwrap(),
-            Type::I16 => writeln!(self.output, "{}EncodeI16({}, buf)", tabs, value).unwrap(),
-            Type::I32 => writeln!(self.output, "{}EncodeI32({}, buf)", tabs, value).unwrap(),
-            Type::I64 => writeln!(self.output, "{}EncodeI64({}, buf)", tabs, value).unwrap(),
-            Type::F32 => writeln!(self.output, "{}EncodeF32({}, buf)", tabs, value).unwrap(),
-            Type::F64 => writeln!(self.output, "{}EncodeF64({}, buf)", tabs, value).unwrap(),
-            Type::String => writeln!(self.output, "{}EncodeString({}, buf)", tabs, value).unwrap(),
+            Type::Bool => writeln!(self.output, "{}__rt.EncodeBool({}, buf)", tabs, value).unwrap(),
+            Type::U8 => writeln!(self.output, "{}__rt.EncodeU8({}, buf)", tabs, value).unwrap(),
+            Type::U16 => writeln!(self.output, "{}__rt.EncodeU16({}, buf)", tabs, value).unwrap(),
+            Type::U32 => writeln!(self.output, "{}__rt.EncodeU32({}, buf)", tabs, value).unwrap(),
+            Type::U64 => writeln!(self.output, "{}__rt.EncodeU64({}, buf)", tabs, value).unwrap(),
+            Type::I8 => writeln!(self.output, "{}__rt.EncodeI8({}, buf)", tabs, value).unwrap(),
+            Type::I16 => writeln!(self.output, "{}__rt.EncodeI16({}, buf)", tabs, value).unwrap(),
+            Type::I32 => writeln!(self.output, "{}__rt.EncodeI32({}, buf)", tabs, value).unwrap(),
+            Type::I64 => writeln!(self.output, "{}__rt.EncodeI64({}, buf)", tabs, value).unwrap(),
+            Type::F32 => writeln!(self.output, "{}__rt.EncodeF32({}, buf)", tabs, value).unwrap(),
+            Type::F64 => writeln!(self.output, "{}__rt.EncodeF64({}, buf)", tabs, value).unwrap(),
+            Type::String => writeln!(self.output, "{}__rt.EncodeString({}, buf)", tabs, value).unwrap(),
             Type::Array(inner) => {
-                writeln!(self.output, "{}EncodeLEB128(uint64(len({})), buf)", tabs, value).unwrap();
+                writeln!(self.output, "{}__rt.EncodeLEB128(uint64(len({})), buf)", tabs, value).unwrap();
                 writeln!(self.output, "{}for _, item := range {} {{", tabs, value).unwrap();
                 self.encode_value("item", &inner.node, indent + 1);
                 writeln!(self.output, "{}}}", tabs).unwrap();
             }
             Type::Map(k, v) => {
-                writeln!(self.output, "{}EncodeLEB128(uint64(len({})), buf)", tabs, value).unwrap();
+                writeln!(self.output, "{}__rt.EncodeLEB128(uint64(len({})), buf)", tabs, value).unwrap();
                 writeln!(self.output, "{}for k, v := range {} {{", tabs, value).unwrap();
                 self.encode_value("k", &k.node, indent + 1);
                 self.encode_value("v", &v.node, indent + 1);
@@ -795,7 +795,7 @@ impl<'a> GoCodeGenerator<'a> {
         let elem_go_type = self.go_type(elem_ty);
 
         // Decode array length
-        writeln!(self.output, "{}count, err := DecodeLEB128(buf)", tabs).unwrap();
+        writeln!(self.output, "{}count, err := __rt.DecodeLEB128(buf)", tabs).unwrap();
         writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
         writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
         writeln!(self.output, "{}}}", tabs).unwrap();
@@ -830,7 +830,7 @@ impl<'a> GoCodeGenerator<'a> {
         let val_go_type = self.go_type(val_ty);
 
         // Decode map length
-        writeln!(self.output, "{}count, err := DecodeLEB128(buf)", tabs).unwrap();
+        writeln!(self.output, "{}count, err := __rt.DecodeLEB128(buf)", tabs).unwrap();
         writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
         writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
         writeln!(self.output, "{}}}", tabs).unwrap();
@@ -879,18 +879,18 @@ impl<'a> GoCodeGenerator<'a> {
 
     fn decode_call(&self, ty: &Type) -> (String, bool) {
         match ty {
-            Type::Bool => ("DecodeBool(buf)".to_string(), true),
-            Type::U8 => ("DecodeU8(buf)".to_string(), true),
-            Type::U16 => ("DecodeU16(buf)".to_string(), true),
-            Type::U32 => ("DecodeU32(buf)".to_string(), true),
-            Type::U64 => ("DecodeU64(buf)".to_string(), true),
-            Type::I8 => ("DecodeI8(buf)".to_string(), true),
-            Type::I16 => ("DecodeI16(buf)".to_string(), true),
-            Type::I32 => ("DecodeI32(buf)".to_string(), true),
-            Type::I64 => ("DecodeI64(buf)".to_string(), true),
-            Type::F32 => ("DecodeF32(buf)".to_string(), true),
-            Type::F64 => ("DecodeF64(buf)".to_string(), true),
-            Type::String => ("DecodeString(buf)".to_string(), true),
+            Type::Bool => ("__rt.DecodeBool(buf)".to_string(), true),
+            Type::U8 => ("__rt.DecodeU8(buf)".to_string(), true),
+            Type::U16 => ("__rt.DecodeU16(buf)".to_string(), true),
+            Type::U32 => ("__rt.DecodeU32(buf)".to_string(), true),
+            Type::U64 => ("__rt.DecodeU64(buf)".to_string(), true),
+            Type::I8 => ("__rt.DecodeI8(buf)".to_string(), true),
+            Type::I16 => ("__rt.DecodeI16(buf)".to_string(), true),
+            Type::I32 => ("__rt.DecodeI32(buf)".to_string(), true),
+            Type::I64 => ("__rt.DecodeI64(buf)".to_string(), true),
+            Type::F32 => ("__rt.DecodeF32(buf)".to_string(), true),
+            Type::F64 => ("__rt.DecodeF64(buf)".to_string(), true),
+            Type::String => ("__rt.DecodeString(buf)".to_string(), true),
             Type::Array(_) => ("nil, nil".to_string(), true), // TODO: implement array decode
             Type::Map(_, _) => ("nil, nil".to_string(), true), // TODO: implement map decode
             Type::Named(name) => (format!("Decode{}(buf)", name), true),
@@ -900,16 +900,16 @@ impl<'a> GoCodeGenerator<'a> {
     fn encode_tagged_field(&mut self, index: u32, value: &str, ty: &Type, indent: usize) {
         let tabs = "\t".repeat(indent);
         let wire_type = self.wire_type(ty);
-        writeln!(self.output, "{}EncodeTag({}, {}, buf)", tabs, index, wire_type).unwrap();
+        writeln!(self.output, "{}__rt.EncodeTag({}, {}, buf)", tabs, index, wire_type).unwrap();
 
-        if wire_type == "WireBytes" {
+        if wire_type == "__rt.WireBytes" {
             // For length-delimited fields, we need to encode to a temp buffer,
             // then write the length, then the buffer
             writeln!(self.output, "{}{{", tabs).unwrap();
             writeln!(self.output, "{}\tlengthBuf := []byte{{}}", tabs).unwrap();
             writeln!(self.output, "{}\ttmpBuf := &lengthBuf", tabs).unwrap();
             self.encode_value_to_buf(value, ty, indent + 1, "tmpBuf", true);
-            writeln!(self.output, "{}\tEncodeLEB128(uint64(len(lengthBuf)), buf)", tabs).unwrap();
+            writeln!(self.output, "{}\t__rt.EncodeLEB128(uint64(len(lengthBuf)), buf)", tabs).unwrap();
             writeln!(self.output, "{}\t*buf = append(*buf, lengthBuf...)", tabs).unwrap();
             writeln!(self.output, "{}}}", tabs).unwrap();
         } else {
@@ -920,24 +920,24 @@ impl<'a> GoCodeGenerator<'a> {
     fn encode_value_to_buf(&mut self, value: &str, ty: &Type, indent: usize, buf_var: &str, in_bytes_field: bool) {
         let tabs = "\t".repeat(indent);
         match ty {
-            Type::Bool => writeln!(self.output, "{}EncodeBool({}, {})", tabs, value, buf_var).unwrap(),
-            Type::U8 => writeln!(self.output, "{}EncodeU8({}, {})", tabs, value, buf_var).unwrap(),
-            Type::U16 => writeln!(self.output, "{}EncodeU16({}, {})", tabs, value, buf_var).unwrap(),
-            Type::U32 => writeln!(self.output, "{}EncodeU32({}, {})", tabs, value, buf_var).unwrap(),
-            Type::U64 => writeln!(self.output, "{}EncodeU64({}, {})", tabs, value, buf_var).unwrap(),
-            Type::I8 => writeln!(self.output, "{}EncodeI8({}, {})", tabs, value, buf_var).unwrap(),
-            Type::I16 => writeln!(self.output, "{}EncodeI16({}, {})", tabs, value, buf_var).unwrap(),
-            Type::I32 => writeln!(self.output, "{}EncodeI32({}, {})", tabs, value, buf_var).unwrap(),
-            Type::I64 => writeln!(self.output, "{}EncodeI64({}, {})", tabs, value, buf_var).unwrap(),
-            Type::F32 => writeln!(self.output, "{}EncodeF32({}, {})", tabs, value, buf_var).unwrap(),
-            Type::F64 => writeln!(self.output, "{}EncodeF64({}, {})", tabs, value, buf_var).unwrap(),
+            Type::Bool => writeln!(self.output, "{}__rt.EncodeBool({}, {})", tabs, value, buf_var).unwrap(),
+            Type::U8 => writeln!(self.output, "{}__rt.EncodeU8({}, {})", tabs, value, buf_var).unwrap(),
+            Type::U16 => writeln!(self.output, "{}__rt.EncodeU16({}, {})", tabs, value, buf_var).unwrap(),
+            Type::U32 => writeln!(self.output, "{}__rt.EncodeU32({}, {})", tabs, value, buf_var).unwrap(),
+            Type::U64 => writeln!(self.output, "{}__rt.EncodeU64({}, {})", tabs, value, buf_var).unwrap(),
+            Type::I8 => writeln!(self.output, "{}__rt.EncodeI8({}, {})", tabs, value, buf_var).unwrap(),
+            Type::I16 => writeln!(self.output, "{}__rt.EncodeI16({}, {})", tabs, value, buf_var).unwrap(),
+            Type::I32 => writeln!(self.output, "{}__rt.EncodeI32({}, {})", tabs, value, buf_var).unwrap(),
+            Type::I64 => writeln!(self.output, "{}__rt.EncodeI64({}, {})", tabs, value, buf_var).unwrap(),
+            Type::F32 => writeln!(self.output, "{}__rt.EncodeF32({}, {})", tabs, value, buf_var).unwrap(),
+            Type::F64 => writeln!(self.output, "{}__rt.EncodeF64({}, {})", tabs, value, buf_var).unwrap(),
             Type::String => {
                 if in_bytes_field {
                     // String is a direct BYTES field - outer length already encoded, just append raw bytes
                     writeln!(self.output, "{}*{} = append(*{}, {}...)", tabs, buf_var, buf_var, value).unwrap();
                 } else {
                     // String is nested (e.g., in array) - needs its own length prefix
-                    writeln!(self.output, "{}EncodeString({}, {})", tabs, value, buf_var).unwrap();
+                    writeln!(self.output, "{}__rt.EncodeString({}, {})", tabs, value, buf_var).unwrap();
                 }
             }
             Type::Array(inner) => {
@@ -953,7 +953,7 @@ impl<'a> GoCodeGenerator<'a> {
                     writeln!(self.output, "{}}}", tabs).unwrap();
                 } else {
                     // Variable-size elements: include count prefix
-                    writeln!(self.output, "{}EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
+                    writeln!(self.output, "{}__rt.EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
                     writeln!(self.output, "{}for _, item := range {} {{", tabs, value).unwrap();
                     self.encode_value_to_buf("item", &inner.node, indent + 1, buf_var, false);
                     writeln!(self.output, "{}}}", tabs).unwrap();
@@ -979,7 +979,7 @@ impl<'a> GoCodeGenerator<'a> {
                     writeln!(self.output, "{}}}", tabs).unwrap();
                 } else {
                     // Variable-size entries: include count prefix
-                    writeln!(self.output, "{}EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
+                    writeln!(self.output, "{}__rt.EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
                     writeln!(self.output, "{}for k, v := range {} {{", tabs, value).unwrap();
                     self.encode_value_to_buf("k", &k.node, indent + 1, buf_var, false);
                     self.encode_value_to_buf("v", &v.node, indent + 1, buf_var, false);
@@ -996,9 +996,9 @@ impl<'a> GoCodeGenerator<'a> {
         let tabs = "\t".repeat(indent);
         let wire_type = self.wire_type(ty);
 
-        if wire_type == "WireBytes" {
+        if wire_type == "__rt.WireBytes" {
             // For length-delimited fields, first decode the length
-            writeln!(self.output, "{}length, err := DecodeLEB128(buf)", tabs).unwrap();
+            writeln!(self.output, "{}length, err := __rt.DecodeLEB128(buf)", tabs).unwrap();
             writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
             writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
             writeln!(self.output, "{}}}", tabs).unwrap();
@@ -1071,7 +1071,7 @@ impl<'a> GoCodeGenerator<'a> {
         } else {
             // Variable-size elements: read count prefix, then elements
             writeln!(self.output, "{}_ = {} // Outer BYTES length", tabs, length_var).unwrap();
-            writeln!(self.output, "{}count, err := DecodeLEB128(buf)", tabs).unwrap();
+            writeln!(self.output, "{}count, err := __rt.DecodeLEB128(buf)", tabs).unwrap();
             writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
             writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
             writeln!(self.output, "{}}}", tabs).unwrap();
@@ -1161,7 +1161,7 @@ impl<'a> GoCodeGenerator<'a> {
         } else {
             // Variable-size entries: read count prefix, then entries
             writeln!(self.output, "{}_ = {} // Outer BYTES length", tabs, length_var).unwrap();
-            writeln!(self.output, "{}count, err := DecodeLEB128(buf)", tabs).unwrap();
+            writeln!(self.output, "{}count, err := __rt.DecodeLEB128(buf)", tabs).unwrap();
             writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
             writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
             writeln!(self.output, "{}}}", tabs).unwrap();
@@ -1199,14 +1199,14 @@ impl<'a> GoCodeGenerator<'a> {
 
     fn wire_type(&self, ty: &Type) -> &'static str {
         match self.schema.wire_type(ty) {
-            crate::schema::WireType::Fixed8 => "WireFixed8",
-            crate::schema::WireType::Varint => "WireVarint",
-            crate::schema::WireType::Fixed32 => "WireFixed32",
-            crate::schema::WireType::Fixed64 => "WireFixed64",
-            crate::schema::WireType::Bytes => "WireBytes",
-            crate::schema::WireType::Message => "WireMessage",
-            crate::schema::WireType::Union => "WireUnion",
-            crate::schema::WireType::Unit => "WireUnit",
+            crate::schema::WireType::Fixed8 => "__rt.WireFixed8",
+            crate::schema::WireType::Varint => "__rt.WireVarint",
+            crate::schema::WireType::Fixed32 => "__rt.WireFixed32",
+            crate::schema::WireType::Fixed64 => "__rt.WireFixed64",
+            crate::schema::WireType::Bytes => "__rt.WireBytes",
+            crate::schema::WireType::Message => "__rt.WireMessage",
+            crate::schema::WireType::Union => "__rt.WireUnion",
+            crate::schema::WireType::Unit => "__rt.WireUnit",
         }
     }
 }
