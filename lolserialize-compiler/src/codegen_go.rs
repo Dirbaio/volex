@@ -397,181 +397,295 @@ impl<'a> GoCodeGenerator<'a> {
     }
 
     fn gen_union(&mut self, u: &Union) {
-        // Generate union type as interface
-        writeln!(self.output, "type {} interface {{", u.name.node).unwrap();
-        writeln!(self.output, "\tEncode(buf *[]byte)").unwrap();
-        writeln!(self.output, "\tis{}()", u.name.node).unwrap();
-        self.output.push_str("}\n\n");
+        let union_name = &u.name.node;
 
-        // Generate variant types
+        // Generate union struct with tag and value fields (private)
+        writeln!(self.output, "type {} struct {{", union_name).unwrap();
+        writeln!(self.output, "\ttag uint32").unwrap();
+        writeln!(self.output, "\tvalue interface{{}}").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        // Generate constructors for each variant
         for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
-
-            if let Some(ref ty) = variant.ty {
-                writeln!(self.output, "type {} struct {{", variant_name).unwrap();
-                writeln!(self.output, "\tValue {}", self.go_type(&ty.node)).unwrap();
-                self.output.push_str("}\n\n");
-            } else {
-                writeln!(self.output, "type {} struct {{}}\n", variant_name).unwrap();
-            }
-
-            // Implement interface marker
-            writeln!(self.output, "func ({}) is{}() {{}}\n", variant_name, u.name.node).unwrap();
-
-            // Encode method for variant
-            writeln!(self.output, "func (v {}) Encode(buf *[]byte) {{", variant_name).unwrap();
+            let variant_method = to_pascal_case(&variant.name.node);
             let index = variant.index.node;
 
             if let Some(ref ty) = variant.ty {
-                let wire_type = self.schema.wire_type(&ty.node);
                 writeln!(
                     self.output,
-                    "\tEncodeTag({}, {}, buf)",
-                    index,
-                    wire_type_to_go_const(wire_type)
+                    "// New{}{} creates a {} with {} variant",
+                    union_name, variant_method, union_name, variant.name.node
                 )
                 .unwrap();
-                if wire_type == WireType::Bytes {
-                    self.output.push_str("\t// Encode length-delimited\n");
-                    self.output.push_str("\tlengthBuf := []byte{}\n");
-                    self.encode_value("v.Value", &ty.node, 1);
-                    self.output.push_str("\tEncodeBytes(lengthBuf, buf)\n");
-                } else {
-                    self.encode_value("v.Value", &ty.node, 1);
-                }
+                writeln!(
+                    self.output,
+                    "func New{}{}(value {}) {} {{",
+                    union_name,
+                    variant_method,
+                    self.go_type(&ty.node),
+                    union_name
+                )
+                .unwrap();
+                writeln!(self.output, "\treturn {}{{{}, &value}}", union_name, index).unwrap();
+                writeln!(self.output, "}}\n").unwrap();
             } else {
                 writeln!(
                     self.output,
-                    "\tEncodeTag({}, {}, buf)",
+                    "// New{}{} creates a {} with {} variant",
+                    union_name, variant_method, union_name, variant.name.node
+                )
+                .unwrap();
+                writeln!(
+                    self.output,
+                    "func New{}{}() {} {{",
+                    union_name, variant_method, union_name
+                )
+                .unwrap();
+                writeln!(self.output, "\treturn {}{{{}, nil}}", union_name, index).unwrap();
+                writeln!(self.output, "}}\n").unwrap();
+            }
+        }
+
+        // Generate init method to handle zero-value case
+        writeln!(self.output, "// init ensures the union has a valid tag (converts zero-value to first variant)").unwrap();
+        writeln!(self.output, "func (v *{}) init() {{", union_name).unwrap();
+        writeln!(self.output, "\tif v.tag == 0 {{").unwrap();
+
+        // Find the first variant (lowest index)
+        let first_variant = u.variants.iter().min_by_key(|v| v.index.node).unwrap();
+        let first_index = first_variant.index.node;
+
+        writeln!(self.output, "\t\tv.tag = {}", first_index).unwrap();
+        if let Some(ref ty) = first_variant.ty {
+            // Initialize with zero value of the type as a pointer
+            writeln!(self.output, "\t\tvar zero {}", self.go_type(&ty.node)).unwrap();
+            writeln!(self.output, "\t\tv.value = &zero").unwrap();
+        } else {
+            writeln!(self.output, "\t\tv.value = nil").unwrap();
+        }
+        writeln!(self.output, "\t}}").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        // Generate getters for each variant
+        for variant in &u.variants {
+            let variant_method = to_pascal_case(&variant.name.node);
+            let index = variant.index.node;
+
+            if let Some(ref ty) = variant.ty {
+                writeln!(
+                    self.output,
+                    "// {} returns the value if this union is a {} variant, otherwise returns nil",
+                    variant_method, variant.name.node
+                )
+                .unwrap();
+                writeln!(
+                    self.output,
+                    "func (v *{}) {}() *{} {{",
+                    union_name,
+                    variant_method,
+                    self.go_type(&ty.node)
+                )
+                .unwrap();
+                writeln!(self.output, "\tv.init()").unwrap();
+                writeln!(self.output, "\tif v.tag == {} {{", index).unwrap();
+                writeln!(self.output, "\t\treturn v.value.(*{})", self.go_type(&ty.node)).unwrap();
+                writeln!(self.output, "\t}}").unwrap();
+                writeln!(self.output, "\treturn nil").unwrap();
+                writeln!(self.output, "}}\n").unwrap();
+            } else {
+                writeln!(
+                    self.output,
+                    "// Is{} returns true if this union is a {} variant",
+                    variant_method, variant.name.node
+                )
+                .unwrap();
+                writeln!(self.output, "func (v *{}) Is{}() bool {{", union_name, variant_method).unwrap();
+                writeln!(self.output, "\tv.init()").unwrap();
+                writeln!(self.output, "\treturn v.tag == {}", index).unwrap();
+                writeln!(self.output, "}}\n").unwrap();
+            }
+        }
+
+        // Generate Encode method
+        writeln!(self.output, "// Encode encodes the union to the wire format").unwrap();
+        writeln!(self.output, "func (v *{}) Encode(buf *[]byte) {{", union_name).unwrap();
+        writeln!(self.output, "\tv.init()").unwrap();
+        writeln!(self.output, "\tswitch v.tag {{").unwrap();
+
+        for variant in &u.variants {
+            let index = variant.index.node;
+            writeln!(self.output, "\tcase {}:", index).unwrap();
+
+            if let Some(ref ty) = variant.ty {
+                writeln!(self.output, "\t\tvalue := *v.value.(*{})", self.go_type(&ty.node)).unwrap();
+                self.encode_tagged_field(index, "value", &ty.node, 2);
+            } else {
+                writeln!(
+                    self.output,
+                    "\t\tEncodeTag({}, {}, buf)",
                     index,
                     wire_type_to_go_const(WireType::Unit)
                 )
                 .unwrap();
             }
-
-            self.output.push_str("}\n\n");
         }
+
+        writeln!(self.output, "\tdefault:").unwrap();
+        writeln!(self.output, "\t\tpanic(\"invalid union tag\")").unwrap();
+        writeln!(self.output, "\t}}").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
 
         // Generate Decode function
         writeln!(
             self.output,
-            "func Decode{}(buf *[]byte) ({}, error) {{",
-            u.name.node, u.name.node
+            "// Decode{} decodes a {} from the wire format",
+            union_name, union_name
         )
         .unwrap();
-        self.output.push_str("\tindex, _, _, err := DecodeTag(buf)\n");
-        self.output.push_str("\tif err != nil {\n\t\treturn nil, err\n\t}\n\n");
-        self.output.push_str("\tswitch index {\n");
-
-        for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
-            writeln!(self.output, "\tcase {}:", variant.index.node).unwrap();
-
-            if let Some(ref ty) = variant.ty {
-                self.output.push_str("\t\tvar value ");
-                self.output.push_str(&self.go_type(&ty.node));
-                self.output.push('\n');
-
-                let wire_type = self.schema.wire_type(&ty.node);
-                if wire_type == WireType::Bytes {
-                    self.output.push_str("\t\tlength, err := DecodeLEB128(buf)\n");
-                    self.output
-                        .push_str("\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n");
-                    self.output
-                        .push_str("\t\t_ = length // TODO: use for bounds checking\n");
-                }
-
-                // For unions, we return nil on error (not a zero value)
-                // So we pass "nil" as the parent_type, but since decode_value_inline
-                // formats it as "{}{{}}", we need to handle this specially
-                let tabs = "\t\t";
-                let (decode_call, _) = self.decode_call(&ty.node);
-                writeln!(self.output, "{}value, err = {}", tabs, decode_call).unwrap();
-                writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
-                writeln!(self.output, "{}\treturn nil, err", tabs).unwrap();
-                writeln!(self.output, "{}}}", tabs).unwrap();
-                writeln!(
-                    self.output,
-                    "\t\treturn {}{{{}}}, nil",
-                    variant_name,
-                    if matches!(&ty.node, Type::Named(_)) {
-                        "value"
-                    } else {
-                        "Value: value"
-                    }
-                )
-                .unwrap();
-            } else {
-                writeln!(self.output, "\t\treturn {}{{}}, nil", variant_name).unwrap();
-            }
-        }
-
-        self.output.push_str("\tdefault:\n");
-        self.output.push_str("\t\treturn nil, ErrUnknownUnionVariant\n");
-        self.output.push_str("\t}\n");
-        self.output.push_str("}\n\n");
-
-        // Generate JSON marshaling for each variant
-        for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
-            let orig_name = &variant.name.node;
-
-            // MarshalJSON
-            writeln!(
-                self.output,
-                "func (v {}) MarshalJSON() ([]byte, error) {{",
-                variant_name
-            )
-            .unwrap();
-            if variant.ty.is_some() {
-                writeln!(self.output, "\tm := map[string]interface{{}}{{").unwrap();
-                writeln!(self.output, "\t\t\"$tag\": \"{}\",", orig_name).unwrap();
-                writeln!(self.output, "\t\t\"$value\": v.Value,").unwrap();
-                writeln!(self.output, "\t}}").unwrap();
-                writeln!(self.output, "\treturn json.Marshal(m)").unwrap();
-            } else {
-                // Unit variant - marshal as just the string
-                writeln!(self.output, "\treturn []byte(\"\\\"{}\\\"\"), nil", orig_name).unwrap();
-            }
-            writeln!(self.output, "}}\n").unwrap();
-        }
-
-        // Generate UnmarshalJSON wrapper
-        writeln!(self.output, "// {}JSON is a wrapper for JSON unmarshaling", u.name.node).unwrap();
-        writeln!(self.output, "type {}JSON struct {{", u.name.node).unwrap();
-        writeln!(self.output, "\tTag string `json:\"$tag\"`").unwrap();
-        writeln!(self.output, "\tValue json.RawMessage `json:\"$value\"`").unwrap();
-        writeln!(self.output, "}}\n").unwrap();
-
-        // Helper function to unmarshal union from JSON
         writeln!(
             self.output,
-            "func Unmarshal{}JSON(data []byte) ({}, error) {{",
-            u.name.node, u.name.node
+            "func Decode{}(buf *[]byte) ({}, error) {{",
+            union_name, union_name
+        )
+        .unwrap();
+        writeln!(self.output, "\tindex, _, _, err := DecodeTag(buf)").unwrap();
+        writeln!(self.output, "\tif err != nil {{").unwrap();
+        writeln!(self.output, "\t\treturn {}{{}}, err", union_name).unwrap();
+        writeln!(self.output, "\t}}").unwrap();
+        writeln!(self.output, "\tswitch index {{").unwrap();
+
+        for variant in &u.variants {
+            let index = variant.index.node;
+            writeln!(self.output, "\tcase {}:", index).unwrap();
+
+            if let Some(ref ty) = variant.ty {
+                writeln!(self.output, "\t\tvar value {}", self.go_type(&ty.node)).unwrap();
+                self.decode_tagged_field("value", &ty.node, 2, false, union_name);
+
+                // If the value is a union type, call init() on it through a pointer
+                if let Type::Named(name) = &ty.node {
+                    let is_union = self.schema.items.iter().any(|item| {
+                        item.node.name() == name && matches!(&item.node, crate::schema::Item::Union(_))
+                    });
+                    if is_union {
+                        writeln!(self.output, "\t\t(&value).init()").unwrap();
+                    }
+                }
+
+                writeln!(self.output, "\t\treturn {}{{{}, &value}}, nil", union_name, index).unwrap();
+            } else {
+                writeln!(self.output, "\t\treturn {}{{{}, nil}}, nil", union_name, index).unwrap();
+            }
+        }
+
+        writeln!(self.output, "\tdefault:").unwrap();
+        writeln!(self.output, "\t\treturn {}{{}}, ErrUnknownUnionVariant", union_name).unwrap();
+        writeln!(self.output, "\t}}").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        // Generate MarshalJSON
+        writeln!(self.output, "// MarshalJSON implements json.Marshaler").unwrap();
+        writeln!(self.output, "func (v *{}) MarshalJSON() ([]byte, error) {{", union_name).unwrap();
+        writeln!(self.output, "\tv.init()").unwrap();
+        writeln!(self.output, "\tswitch v.tag {{").unwrap();
+
+        for variant in &u.variants {
+            let index = variant.index.node;
+            writeln!(self.output, "\tcase {}:", index).unwrap();
+
+            if let Some(ref ty) = variant.ty {
+                // Check if this is []uint8 which needs special handling to avoid base64 encoding
+                let is_byte_array = matches!(&ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8));
+
+                if is_byte_array {
+                    // For []uint8, we need to convert to []interface{} to get JSON array instead of base64
+                    writeln!(self.output, "\t\tval := *v.value.(*[]uint8)").unwrap();
+                    writeln!(self.output, "\t\tarr := make([]interface{{}}, len(val))").unwrap();
+                    writeln!(self.output, "\t\tfor i, b := range val {{").unwrap();
+                    writeln!(self.output, "\t\t\tarr[i] = b").unwrap();
+                    writeln!(self.output, "\t\t}}").unwrap();
+                    writeln!(self.output, "\t\tm := map[string]interface{{}}{{").unwrap();
+                    writeln!(self.output, "\t\t\t\"$tag\": \"{}\",", variant.name.node).unwrap();
+                    writeln!(self.output, "\t\t\t\"$value\": arr,").unwrap();
+                    writeln!(self.output, "\t\t}}").unwrap();
+                    writeln!(self.output, "\t\treturn json.Marshal(m)").unwrap();
+                } else {
+                    // If the value is a union type, take its address for JSON marshaling
+                    let is_union = if let Type::Named(name) = &ty.node {
+                        self.schema.items.iter().any(|item| {
+                            item.node.name() == name && matches!(&item.node, crate::schema::Item::Union(_))
+                        })
+                    } else {
+                        false
+                    };
+
+                    if is_union {
+                        writeln!(self.output, "\t\tval := v.value.(*{})", self.go_type(&ty.node)).unwrap();
+                        writeln!(self.output, "\t\tm := map[string]interface{{}}{{").unwrap();
+                        writeln!(self.output, "\t\t\t\"$tag\": \"{}\",", variant.name.node).unwrap();
+                        writeln!(self.output, "\t\t\t\"$value\": val,").unwrap();
+                        writeln!(self.output, "\t\t}}").unwrap();
+                        writeln!(self.output, "\t\treturn json.Marshal(m)").unwrap();
+                    } else {
+                        writeln!(self.output, "\t\tm := map[string]interface{{}}{{").unwrap();
+                        writeln!(self.output, "\t\t\t\"$tag\": \"{}\",", variant.name.node).unwrap();
+                        writeln!(self.output, "\t\t\t\"$value\": *v.value.(*{}),", self.go_type(&ty.node)).unwrap();
+                        writeln!(self.output, "\t\t}}").unwrap();
+                        writeln!(self.output, "\t\treturn json.Marshal(m)").unwrap();
+                    }
+                }
+            } else {
+                writeln!(self.output, "\t\tm := map[string]interface{{}}{{").unwrap();
+                writeln!(self.output, "\t\t\t\"$tag\": \"{}\",", variant.name.node).unwrap();
+                writeln!(self.output, "\t\t}}").unwrap();
+                writeln!(self.output, "\t\treturn json.Marshal(m)").unwrap();
+            }
+        }
+
+        writeln!(self.output, "\tdefault:").unwrap();
+        writeln!(self.output, "\t\tpanic(\"invalid union tag\")").unwrap();
+        writeln!(self.output, "\t}}").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        // Generate UnmarshalJSON
+        writeln!(self.output, "// UnmarshalJSON implements json.Unmarshaler").unwrap();
+        writeln!(
+            self.output,
+            "func (v *{}) UnmarshalJSON(data []byte) error {{",
+            union_name
         )
         .unwrap();
         writeln!(self.output, "\t// Try unit variant (just a string)").unwrap();
         writeln!(self.output, "\tvar tag string").unwrap();
         writeln!(self.output, "\tif err := json.Unmarshal(data, &tag); err == nil {{").unwrap();
         writeln!(self.output, "\t\tswitch tag {{").unwrap();
+
         for variant in &u.variants {
             if variant.ty.is_none() {
-                let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
+                let index = variant.index.node;
                 writeln!(self.output, "\t\tcase \"{}\":", variant.name.node).unwrap();
-                writeln!(self.output, "\t\t\treturn {}{{}}, nil", variant_name).unwrap();
+                writeln!(self.output, "\t\t\tv.tag = {}", index).unwrap();
+                writeln!(self.output, "\t\t\tv.value = nil").unwrap();
+                writeln!(self.output, "\t\t\treturn nil").unwrap();
             }
         }
+
         writeln!(self.output, "\t\t}}").unwrap();
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "\t// Try tagged variant").unwrap();
-        writeln!(self.output, "\tvar wrapper {}JSON", u.name.node).unwrap();
+        writeln!(self.output, "\tvar wrapper struct {{").unwrap();
+        writeln!(self.output, "\t\tTag string `json:\"$tag\"`").unwrap();
+        writeln!(self.output, "\t\tValue json.RawMessage `json:\"$value\"`").unwrap();
+        writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "\tif err := json.Unmarshal(data, &wrapper); err != nil {{").unwrap();
-        writeln!(self.output, "\t\treturn nil, err").unwrap();
+        writeln!(self.output, "\t\treturn err").unwrap();
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "\tswitch wrapper.Tag {{").unwrap();
+
         for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
+            let index = variant.index.node;
             writeln!(self.output, "\tcase \"{}\":", variant.name.node).unwrap();
+
             if let Some(ref ty) = variant.ty {
                 writeln!(self.output, "\t\tvar value {}", self.go_type(&ty.node)).unwrap();
                 writeln!(
@@ -579,15 +693,32 @@ impl<'a> GoCodeGenerator<'a> {
                     "\t\tif err := json.Unmarshal(wrapper.Value, &value); err != nil {{"
                 )
                 .unwrap();
-                writeln!(self.output, "\t\t\treturn nil, err").unwrap();
+                writeln!(self.output, "\t\t\treturn err").unwrap();
                 writeln!(self.output, "\t\t}}").unwrap();
-                writeln!(self.output, "\t\treturn {}{{Value: value}}, nil", variant_name).unwrap();
+
+                // If the value is a union type (Named type that's a union), call init() on it through a pointer
+                if let Type::Named(name) = &ty.node {
+                    // Check if this is a union by looking it up in the schema
+                    let is_union = self.schema.items.iter().any(|item| {
+                        item.node.name() == name && matches!(&item.node, crate::schema::Item::Union(_))
+                    });
+                    if is_union {
+                        writeln!(self.output, "\t\t(&value).init()").unwrap();
+                    }
+                }
+
+                writeln!(self.output, "\t\tv.tag = {}", index).unwrap();
+                writeln!(self.output, "\t\tv.value = &value").unwrap();
+                writeln!(self.output, "\t\treturn nil").unwrap();
             } else {
-                writeln!(self.output, "\t\treturn {}{{}}, nil", variant_name).unwrap();
+                writeln!(self.output, "\t\tv.tag = {}", index).unwrap();
+                writeln!(self.output, "\t\tv.value = nil").unwrap();
+                writeln!(self.output, "\t\treturn nil").unwrap();
             }
         }
+
         writeln!(self.output, "\tdefault:").unwrap();
-        writeln!(self.output, "\t\treturn nil, ErrUnknownUnionVariant").unwrap();
+        writeln!(self.output, "\t\treturn ErrUnknownUnionVariant").unwrap();
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "}}\n").unwrap();
     }
