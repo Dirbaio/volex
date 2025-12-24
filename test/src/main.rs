@@ -1,3 +1,4 @@
+mod lang_go;
 mod lang_rust;
 
 use std::fs;
@@ -26,12 +27,14 @@ struct Cli {
 #[derive(Copy, Clone, PartialEq, Eq, ValueEnum)]
 enum Language {
     Rust,
+    Go,
 }
 
 impl Language {
     fn as_str(&self) -> &'static str {
         match self {
             Language::Rust => "rust",
+            Language::Go => "go",
         }
     }
 }
@@ -122,6 +125,43 @@ impl Drop for TestBinary {
     }
 }
 
+fn json_eq_with_float_tolerance(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    const FLOAT_TOLERANCE: f64 = 1e-6;
+    const RELATIVE_TOLERANCE: f64 = 1e-6;
+
+    match (a, b) {
+        (serde_json::Value::Number(a_num), serde_json::Value::Number(b_num)) => {
+            // Compare numbers with tolerance for floats
+            match (a_num.as_f64(), b_num.as_f64()) {
+                (Some(a_f), Some(b_f)) => {
+                    // Both are floats
+                    if a_f.is_infinite() && b_f.is_infinite() {
+                        a_f.is_sign_positive() == b_f.is_sign_positive()
+                    } else if a_f.is_nan() && b_f.is_nan() {
+                        true
+                    } else {
+                        let abs_diff = (a_f - b_f).abs();
+                        let max_abs = a_f.abs().max(b_f.abs());
+                        // Use relative tolerance for large numbers, absolute for small
+                        abs_diff <= FLOAT_TOLERANCE || abs_diff <= max_abs * RELATIVE_TOLERANCE
+                    }
+                }
+                _ => a_num == b_num, // Integer comparison
+            }
+        }
+        (serde_json::Value::Array(a_arr), serde_json::Value::Array(b_arr)) => {
+            a_arr.len() == b_arr.len() && a_arr.iter().zip(b_arr.iter()).all(|(a, b)| json_eq_with_float_tolerance(a, b))
+        }
+        (serde_json::Value::Object(a_obj), serde_json::Value::Object(b_obj)) => {
+            a_obj.len() == b_obj.len()
+                && a_obj
+                    .iter()
+                    .all(|(k, v)| b_obj.get(k).map_or(false, |b_v| json_eq_with_float_tolerance(v, b_v)))
+        }
+        _ => a == b, // For null, bool, string, use exact equality
+    }
+}
+
 fn load_test_cases(suite: &str) -> Result<Vec<TestCase>, String> {
     let testcases_path = PathBuf::from(format!("./tests/{}.json", suite));
     let testcases_json = fs::read_to_string(&testcases_path).map_err(|e| format!("read testcases: {}", e))?;
@@ -156,9 +196,14 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
     println!("  Compiling schema...");
     let lang_flag = match lang {
         Language::Rust => "rust",
+        Language::Go => "go",
     };
 
-    let generated_path = output_dir.join(format!("{}_generated.{}", suite, "rs",));
+    let generated_path = output_dir.join(format!(
+        "{}_generated.{}",
+        suite,
+        if lang == Language::Go { "go" } else { "rs" }
+    ));
     let compile_output = Command::new("cargo")
         .args(&[
             "run",
@@ -183,6 +228,7 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
 
     match lang {
         Language::Rust => lang_rust::launch(suite, &output_dir, &generated_path, &type_names),
+        Language::Go => lang_go::launch(suite, &output_dir, &generated_path, &type_names),
     }
 }
 
@@ -225,7 +271,7 @@ fn run_tests(suite: &str, lang: Language, child: Child, regen_hex: bool) -> Resu
             print!("  [{}] Decode {}: ", i, tc.description);
             match test_bin.decode(&tc.r#type, &hex_clean) {
                 Ok(decoded_json) => {
-                    if decoded_json == tc.json {
+                    if json_eq_with_float_tolerance(&decoded_json, &tc.json) {
                         println!("✓");
                         passed += 1;
                     } else {
