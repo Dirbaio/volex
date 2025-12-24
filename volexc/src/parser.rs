@@ -40,7 +40,11 @@ fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = Simple<char>> {
         just('?').to(Token::Question),
     ));
 
-    let comment = just("//").then(take_until(just('\n'))).padded().ignored();
+    let line_comment = just("//").then(take_until(just('\n'))).padded().ignored();
+
+    let multiline_comment = just("/*").then(take_until(just("*/").ignored())).padded().ignored();
+
+    let comment = line_comment.or(multiline_comment);
 
     let token = int.or(ident).or(symbol);
 

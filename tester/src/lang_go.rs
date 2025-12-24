@@ -15,8 +15,7 @@ pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names:
         .parent()
         .ok_or("failed to get parent dir")?
         .join("runtime-go");
-    let runtime_path_rel = pathdiff::diff_paths(&runtime_path, &test_dir)
-        .ok_or("failed to compute relative path")?;
+    let runtime_path_rel = pathdiff::diff_paths(&runtime_path, &test_dir).ok_or("failed to compute relative path")?;
 
     // Create go.mod
     let go_mod = format!(
