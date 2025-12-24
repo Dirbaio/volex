@@ -9,7 +9,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: lolserialize [--lang <rust|go|typescript>] [--package <name>] <file.lol>");
+        eprintln!("Usage: volex [--lang <rust|go|typescript>] [--package <name>] <file.vol>");
         eprintln!();
         eprintln!("Options:");
         eprintln!("  --lang <rust|go|typescript>    Target language (default: rust)");

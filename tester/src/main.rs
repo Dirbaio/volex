@@ -11,7 +11,7 @@ use clap::{Parser, ValueEnum};
 
 #[derive(Parser)]
 #[command(name = "test-runner")]
-#[command(about = "Cross-implementation test runner for lolserialize")]
+#[command(about = "Cross-implementation test runner for volex")]
 struct Cli {
     /// Test suite name (e.g., "primitives", "structs"). If not specified, runs all suites.
     suite: Option<String>,
@@ -173,8 +173,12 @@ fn json_eq_with_float_tolerance(a: &serde_json::Value, b: &serde_json::Value) ->
     }
 }
 
+fn get_tester_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
 fn load_test_cases(suite: &str) -> Result<Vec<TestCase>, String> {
-    let testcases_path = PathBuf::from(format!("./tests/{}.json", suite));
+    let testcases_path = get_tester_dir().join(format!("tests/{}.json", suite));
     let testcases_json = fs::read_to_string(&testcases_path).map_err(|e| format!("read testcases: {}", e))?;
     serde_json::from_str(&testcases_json).map_err(|e| format!("parse testcases: {}", e))
 }
@@ -182,11 +186,12 @@ fn load_test_cases(suite: &str) -> Result<Vec<TestCase>, String> {
 fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
     println!("==> Launching {} test binary for suite '{}'", lang.as_str(), suite);
 
-    let output_dir = PathBuf::from("./temp");
+    let tester_dir = get_tester_dir();
+    let output_dir = tester_dir.join("temp");
     fs::create_dir_all(&output_dir).map_err(|e| format!("create dir: {}", e))?;
 
     println!("cwd: {:?}", std::env::current_dir());
-    let schema_path = PathBuf::from(format!("./tests/{}.lol", suite));
+    let schema_path = tester_dir.join(format!("tests/{}.vol", suite));
     if !schema_path.exists() {
         return Err(format!("Schema not found: {}", schema_path.display()));
     }
@@ -220,13 +225,20 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
             Language::Rust => "rs",
         }
     ));
+
+    // Get the path to volex-compiler relative to the tester directory
+    let compiler_manifest = tester_dir
+        .parent()
+        .ok_or("failed to get parent dir")?
+        .join("volexc/Cargo.toml");
+
     let compile_output = Command::new("cargo")
         .args(&[
             "run",
             "--bin",
-            "lolserialize",
+            "volex",
             "--manifest-path",
-            "../lolserialize-compiler/Cargo.toml",
+            compiler_manifest.to_str().unwrap(),
             "--",
             "--lang",
             lang_flag,
@@ -362,7 +374,7 @@ fn run_tests(suite: &str, lang: Language, child: Child, regen_hex: bool) -> Resu
     if regen_hex {
         if regenerated > 0 {
             println!();
-            let testcases_path = PathBuf::from(format!("./tests/{}.json", suite));
+            let testcases_path = get_tester_dir().join(format!("tests/{}.json", suite));
             println!(
                 "==> Regenerated {} hex values, saving to {}",
                 regenerated,
@@ -391,7 +403,7 @@ fn run_tests(suite: &str, lang: Language, child: Child, regen_hex: bool) -> Resu
 }
 
 fn discover_suites() -> Result<Vec<String>, String> {
-    let tests_dir = PathBuf::from("./tests");
+    let tests_dir = get_tester_dir().join("tests");
     let mut suites = Vec::new();
 
     let entries = fs::read_dir(&tests_dir).map_err(|e| format!("failed to read tests directory: {}", e))?;
@@ -400,7 +412,7 @@ fn discover_suites() -> Result<Vec<String>, String> {
         let entry = entry.map_err(|e| format!("failed to read entry: {}", e))?;
         let path = entry.path();
 
-        if path.extension().and_then(|s| s.to_str()) == Some("lol") {
+        if path.extension().and_then(|s| s.to_str()) == Some("vol") {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 suites.push(stem.to_string());
             }

@@ -1,6 +1,10 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+
+fn get_tester_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
 
 pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names: &[String]) -> Result<Child, String> {
     let test_dir = output_dir.join(format!("{}_testbin_typescript", suite));
@@ -8,7 +12,7 @@ pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names:
 
     // Create package.json
     let package_json = r#"{
-  "name": "lolserialize-testbin",
+  "name": "volex-testbin",
   "version": "1.0.0",
   "type": "module"
 }
@@ -20,9 +24,12 @@ pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names:
     fs::write(test_dir.join("generated.ts"), generated_code).map_err(|e| format!("write generated.ts: {}", e))?;
 
     // Copy runtime library
-    let runtime_src = Path::new("../lolserialize-typescript-runtime/lolserialize.ts");
-    let runtime_code = fs::read_to_string(runtime_src).map_err(|e| format!("read runtime: {}", e))?;
-    fs::write(test_dir.join("lolserialize-runtime.ts"), runtime_code).map_err(|e| format!("write runtime: {}", e))?;
+    let runtime_src = get_tester_dir()
+        .parent()
+        .ok_or("failed to get parent dir")?
+        .join("runtime-typescript/volex.ts");
+    let runtime_code = fs::read_to_string(&runtime_src).map_err(|e| format!("read runtime: {}", e))?;
+    fs::write(test_dir.join("volex.ts"), runtime_code).map_err(|e| format!("write runtime: {}", e))?;
 
     // Generate encode/decode switch cases
     let encode_cases = type_names
@@ -57,7 +64,7 @@ pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names:
 
     // Create main.ts with test binary protocol implementation
     let main_ts = format!(
-        r#"import * as runtime from "./lolserialize-runtime.js";
+        r#"import * as runtime from "./volex.js";
 import {{
 {}
 }} from "./generated.js";

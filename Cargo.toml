@@ -1,10 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "lolserialize-runtime",
-    "lolserialize-compiler",
-    "test"
+    "runtime-rust",
+    "volexc",
+    "tester"
 ]
-
-[workspace.dependencies]
-lolserialize-runtime = { path = "lolserialize-runtime" }

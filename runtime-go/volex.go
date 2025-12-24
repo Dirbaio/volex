@@ -1,5 +1,5 @@
-// Package lolserialize provides runtime encoding/decoding support.
-package lolserialize
+// Package volex provides runtime encoding/decoding support.
+package volex
 
 import (
 	"encoding/binary"

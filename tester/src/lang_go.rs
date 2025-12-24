@@ -1,10 +1,22 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+
+fn get_tester_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
 
 pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names: &[String]) -> Result<Child, String> {
     let test_dir = output_dir.join(format!("{}_testbin_go", suite));
     fs::create_dir_all(&test_dir).map_err(|e| format!("create test dir: {}", e))?;
+
+    // Get runtime path relative to tester package
+    let runtime_path = get_tester_dir()
+        .parent()
+        .ok_or("failed to get parent dir")?
+        .join("runtime-go");
+    let runtime_path_rel = pathdiff::diff_paths(&runtime_path, &test_dir)
+        .ok_or("failed to compute relative path")?;
 
     // Create go.mod
     let go_mod = format!(
@@ -12,9 +24,10 @@ pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names:
 
 go 1.21
 
-replace github.com/lolserialize/runtime => ../../../lolserialize-go-runtime
+replace github.com/volex/runtime => {}
 "#,
-        suite
+        suite,
+        runtime_path_rel.display()
     );
     fs::write(test_dir.join("go.mod"), go_mod).map_err(|e| format!("write go.mod: {}", e))?;
 

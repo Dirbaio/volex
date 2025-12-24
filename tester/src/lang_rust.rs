@@ -2,9 +2,21 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+fn get_tester_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
 pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names: &[String]) -> Result<Child, String> {
     let test_crate_dir = output_dir.join(format!("{}_testbin_rust", suite));
     fs::create_dir_all(test_crate_dir.join("src")).map_err(|e| format!("create dir: {}", e))?;
+
+    // Get runtime path relative to tester package
+    let runtime_path = get_tester_dir()
+        .parent()
+        .ok_or("failed to get parent dir")?
+        .join("runtime-rust");
+    let runtime_path_rel =
+        pathdiff::diff_paths(&runtime_path, &test_crate_dir).ok_or("failed to compute relative path")?;
 
     // Create Cargo.toml
     let cargo_toml = format!(
@@ -20,7 +32,7 @@ name = "{}_testbin"
 path = "src/main.rs"
 
 [dependencies]
-lolserialize-runtime = {{ path = "../../../lolserialize-runtime", features = ["serde"] }}
+volex = {{ path = "{}" }}
 serde = {{ version = "1.0", features = ["derive"] }}
 serde_json = "1.0"
 hex = "0.4"
@@ -28,7 +40,9 @@ hex = "0.4"
 [features]
 serde = []
 "#,
-        suite, suite
+        suite,
+        suite,
+        runtime_path_rel.display()
     );
     fs::write(test_crate_dir.join("Cargo.toml"), cargo_toml).map_err(|e| format!("write Cargo.toml: {}", e))?;
 
@@ -92,7 +106,7 @@ mod generated {{
 }}
 
 use generated::{{{}}};{}
-use lolserialize_runtime::{{Encode, Decode}};
+use volex::{{Encode, Decode}};
 use serde_json::{{self, json}};
 use std::io::{{self, BufRead, Write}};
 

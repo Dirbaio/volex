@@ -1,4 +1,4 @@
-//! Runtime support for lolserialize encoding/decoding.
+//! Runtime support for volex encoding/decoding.
 
 use std::collections::HashMap;
 use std::hash::Hash;

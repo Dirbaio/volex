@@ -202,34 +202,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
 
 [[package]]
-name = "lolserialize-compiler"
-version = "0.1.0"
-dependencies = [
- "ariadne",
- "chumsky",
- "lolserialize-runtime",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "lolserialize-runtime"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "lolserialize-test"
-version = "0.1.0"
-dependencies = [
- "clap",
- "pathdiff",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -376,6 +348,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tester"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "pathdiff",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -398,6 +380,18 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "volex"
+version = "0.1.0"
+
+[[package]]
+name = "volexc"
+version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "chumsky",
+]
 
 [[package]]
 name = "windows-link"

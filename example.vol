@@ -1,4 +1,4 @@
-// Example schema for lolserialize
+// Example schema for volex
 // Syntax is Rust-like with TypeScript-style optional fields (name?: Type)
 
 // Simple struct with fixed layout
