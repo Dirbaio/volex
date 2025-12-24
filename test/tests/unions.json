@@ -427,5 +427,338 @@
       "$tag": "Third",
       "$value": 3
     }
+  },
+  {
+    "type": "ArrayOfFixedStruct",
+    "description": "array of fixed struct: empty",
+    "hex": "0c0100",
+    "json": {
+      "$tag": "Items",
+      "$value": []
+    }
+  },
+  {
+    "type": "ArrayOfFixedStruct",
+    "description": "array of fixed struct: multiple",
+    "hex": "0c0a03010a020b14030c1e00",
+    "json": {
+      "$tag": "Items",
+      "$value": [
+        {
+          "a": 1,
+          "b": 10,
+          "c": 2
+        },
+        {
+          "a": 11,
+          "b": 20,
+          "c": 3
+        },
+        {
+          "a": 12,
+          "b": 30,
+          "c": 0
+        }
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfFixedStruct",
+    "description": "array of fixed struct: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "ArrayOfFixedStructWithFloat",
+    "description": "array of fixed struct with float: empty",
+    "hex": "0c00",
+    "json": {
+      "$tag": "Items",
+      "$value": []
+    }
+  },
+  {
+    "type": "ArrayOfFixedStructWithFloat",
+    "description": "array of fixed struct with float: multiple",
+    "hex": "0c1201000000000202cdcccc3d03000000004000",
+    "json": {
+      "$tag": "Items",
+      "$value": [
+        {
+          "a": 1,
+          "b": 0.0,
+          "c": 2
+        },
+        {
+          "a": 2,
+          "b": 0.10000000149011612,
+          "c": 3
+        },
+        {
+          "a": 0,
+          "b": 2.0,
+          "c": 0
+        }
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfFixedStructWithFloat",
+    "description": "array of fixed struct with float: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "ArrayOfVariableStruct",
+    "description": "array of variable struct: empty",
+    "hex": "0c0100",
+    "json": {
+      "$tag": "Items",
+      "$value": []
+    }
+  },
+  {
+    "type": "ArrayOfVariableStruct",
+    "description": "array of variable struct: multiple",
+    "hex": "0c11030103616263020262630a05656d707479",
+    "json": {
+      "$tag": "Items",
+      "$value": [
+        {
+          "id": 1,
+          "name": "abc"
+        },
+        {
+          "id": 2,
+          "name": "bc"
+        },
+        {
+          "id": 10,
+          "name": "empty"
+        }
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfVariableStruct",
+    "description": "array of variable struct: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "MapU8ToU8",
+    "description": "map u8 to u8: empty",
+    "hex": "0c00",
+    "json": {
+      "$tag": "Map",
+      "$value": {}
+    }
+  },
+  {
+    "type": "MapU8ToU8",
+    "description": "map u8 to u8: multiple entries",
+    "hex": "0c0601020a142832",
+    "json": {
+      "$tag": "Map",
+      "$value": {
+        "1": 2,
+        "10": 20,
+        "40": 50
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapU8ToU8",
+    "description": "map u8 to u8: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "MapU8ToFixedStruct",
+    "description": "map u8 to fixed struct: empty",
+    "hex": "0c0100",
+    "json": {
+      "$tag": "Map",
+      "$value": {}
+    }
+  },
+  {
+    "type": "MapU8ToFixedStruct",
+    "description": "map u8 to fixed struct: multiple entries",
+    "hex": "0c0d030a1e140501010a0214021403",
+    "json": {
+      "$tag": "Map",
+      "$value": {
+        "1": {
+          "a": 1,
+          "b": 10,
+          "c": 2
+        },
+        "10": {
+          "a": 30,
+          "b": 20,
+          "c": 5
+        },
+        "20": {
+          "a": 2,
+          "b": 20,
+          "c": 3
+        }
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapU8ToFixedStruct",
+    "description": "map u8 to fixed struct: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "MapU8ToString",
+    "description": "map u8 to string: empty",
+    "hex": "0c0100",
+    "json": {
+      "$tag": "Map",
+      "$value": {}
+    }
+  },
+  {
+    "type": "MapU8ToString",
+    "description": "map u8 to string: multiple entries",
+    "hex": "0c0e0302036f6e65030374776f010161",
+    "json": {
+      "$tag": "Map",
+      "$value": {
+        "1": "a",
+        "2": "one",
+        "3": "two"
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapU8ToString",
+    "description": "map u8 to string: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "MapStringToU8",
+    "description": "map string to u8: empty",
+    "hex": "0c0100",
+    "json": {
+      "$tag": "Map",
+      "$value": {}
+    }
+  },
+  {
+    "type": "MapStringToU8",
+    "description": "map string to u8: multiple entries",
+    "hex": "0c0a030161010162020163a4",
+    "json": {
+      "$tag": "Map",
+      "$value": {
+        "a": 1,
+        "b": 2,
+        "c": 164
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringToU8",
+    "description": "map string to u8: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "MapStringToFixedStruct",
+    "description": "map string to fixed struct: empty",
+    "hex": "0c0100",
+    "json": {
+      "$tag": "Map",
+      "$value": {}
+    }
+  },
+  {
+    "type": "MapStringToFixedStruct",
+    "description": "map string to fixed struct: multiple entries",
+    "hex": "0c1303036162630a140a01610a0a010261621e1403",
+    "json": {
+      "$tag": "Map",
+      "$value": {
+        "a": {
+          "a": 10,
+          "b": 10,
+          "c": 1
+        },
+        "ab": {
+          "a": 30,
+          "b": 20,
+          "c": 3
+        },
+        "abc": {
+          "a": 10,
+          "b": 20,
+          "c": 10
+        }
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringToFixedStruct",
+    "description": "map string to fixed struct: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
+  },
+  {
+    "type": "MapStringToString",
+    "description": "map string to string: empty",
+    "hex": "0c0100",
+    "json": {
+      "$tag": "Map",
+      "$value": {}
+    }
+  },
+  {
+    "type": "MapStringToString",
+    "description": "map string to string: multiple entries",
+    "hex": "0c19030161016204666f75720576616c7565036162630461626364",
+    "json": {
+      "$tag": "Map",
+      "$value": {
+        "a": "b",
+        "abc": "abcd",
+        "four": "value"
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringToString",
+    "description": "map string to string: empty variant",
+    "hex": "17",
+    "json": {
+      "$tag": "Empty"
+    }
   }
 ]

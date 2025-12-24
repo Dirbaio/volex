@@ -145,11 +145,11 @@
     "description": "all wire types: values",
     "hex": "082a11e8071ac3f548402390f7aa9509bf05402c047465737400",
     "json": {
-      "fixed8": 42,
-      "varint": 1000,
+      "bytes": "test",
       "fixed32": 3.140000104904175,
       "fixed64": 2.71828,
-      "bytes": "test"
+      "fixed8": 42,
+      "varint": 1000
     }
   },
   {
@@ -303,7 +303,7 @@
     "hex": "0902140c48656c6c6f20e4b896e7958c00",
     "json": {
       "id": 2,
-      "name": "Hello 世界"
+      "name": "Hello \u4e16\u754c"
     }
   },
   {
@@ -385,5 +385,248 @@
       "new_field": "new",
       "version": 2
     }
+  },
+  {
+    "type": "ArrayOfFixedStruct",
+    "description": "array of fixed struct: empty",
+    "hex": "0c010000",
+    "json": {
+      "items": []
+    }
+  },
+  {
+    "type": "ArrayOfFixedStruct",
+    "description": "array of fixed struct: multiple",
+    "hex": "0c0a03010a020b14030c1e0000",
+    "json": {
+      "items": [
+        {
+          "a": 1,
+          "b": 10,
+          "c": 2
+        },
+        {
+          "a": 11,
+          "b": 20,
+          "c": 3
+        },
+        {
+          "a": 12,
+          "b": 30,
+          "c": 0
+        }
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfFixedStructWithFloat",
+    "description": "array of fixed struct with float: empty",
+    "hex": "0c0000",
+    "json": {
+      "items": []
+    }
+  },
+  {
+    "type": "ArrayOfFixedStructWithFloat",
+    "description": "array of fixed struct with float: multiple",
+    "hex": "0c1201000000000202cdcccc3d0300000000400000",
+    "json": {
+      "items": [
+        {
+          "a": 1,
+          "b": 0.0,
+          "c": 2
+        },
+        {
+          "a": 2,
+          "b": 0.10000000149011612,
+          "c": 3
+        },
+        {
+          "a": 0,
+          "b": 2.0,
+          "c": 0
+        }
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfVariableStruct",
+    "description": "array of variable struct: empty",
+    "hex": "0c010000",
+    "json": {
+      "items": []
+    }
+  },
+  {
+    "type": "ArrayOfVariableStruct",
+    "description": "array of variable struct: multiple",
+    "hex": "0c11030103616263020262630a05656d70747900",
+    "json": {
+      "items": [
+        {
+          "id": 1,
+          "name": "abc"
+        },
+        {
+          "id": 2,
+          "name": "bc"
+        },
+        {
+          "id": 10,
+          "name": "empty"
+        }
+      ]
+    }
+  },
+  {
+    "type": "MapU8ToU8",
+    "description": "map u8 to u8: empty",
+    "hex": "0c0000",
+    "json": {
+      "map": {}
+    }
+  },
+  {
+    "type": "MapU8ToU8",
+    "description": "map u8 to u8: multiple entries",
+    "hex": "0c060a140102283200",
+    "json": {
+      "map": {
+        "1": 2,
+        "10": 20,
+        "40": 50
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapU8ToFixedStruct",
+    "description": "map u8 to fixed struct: empty",
+    "hex": "0c010000",
+    "json": {
+      "map": {}
+    }
+  },
+  {
+    "type": "MapU8ToFixedStruct",
+    "description": "map u8 to fixed struct: multiple entries",
+    "hex": "0c0d030a1e14051402140301010a0200",
+    "json": {
+      "map": {
+        "1": {
+          "a": 1,
+          "b": 10,
+          "c": 2
+        },
+        "10": {
+          "a": 30,
+          "b": 20,
+          "c": 5
+        },
+        "20": {
+          "a": 2,
+          "b": 20,
+          "c": 3
+        }
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapU8ToString",
+    "description": "map u8 to string: empty",
+    "hex": "0c010000",
+    "json": {
+      "map": {}
+    }
+  },
+  {
+    "type": "MapU8ToString",
+    "description": "map u8 to string: multiple entries",
+    "hex": "0c0e0302036f6e65030374776f01016100",
+    "json": {
+      "map": {
+        "1": "a",
+        "2": "one",
+        "3": "two"
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringToU8",
+    "description": "map string to u8: empty",
+    "hex": "0c010000",
+    "json": {
+      "map": {}
+    }
+  },
+  {
+    "type": "MapStringToU8",
+    "description": "map string to u8: multiple entries",
+    "hex": "0c0a030162020163a401610100",
+    "json": {
+      "map": {
+        "a": 1,
+        "b": 2,
+        "c": 164
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringToFixedStruct",
+    "description": "map string to fixed struct: empty",
+    "hex": "0c010000",
+    "json": {
+      "map": {}
+    }
+  },
+  {
+    "type": "MapStringToFixedStruct",
+    "description": "map string to fixed struct: multiple entries",
+    "hex": "0c1303036162630a140a01610a0a010261621e140300",
+    "json": {
+      "map": {
+        "a": {
+          "a": 10,
+          "b": 10,
+          "c": 1
+        },
+        "ab": {
+          "a": 30,
+          "b": 20,
+          "c": 3
+        },
+        "abc": {
+          "a": 10,
+          "b": 20,
+          "c": 10
+        }
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringToString",
+    "description": "map string to string: empty",
+    "hex": "0c010000",
+    "json": {
+      "map": {}
+    }
+  },
+  {
+    "type": "MapStringToString",
+    "description": "map string to string: multiple entries",
+    "hex": "0c190304666f75720576616c75650161016203616263046162636400",
+    "json": {
+      "map": {
+        "a": "b",
+        "abc": "abcd",
+        "four": "value"
+      }
+    },
+    "nondeterministic_encode": true
   }
 ]

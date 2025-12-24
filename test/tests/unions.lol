@@ -96,3 +96,88 @@ union SparseUnion {
     Second(u8) = 10
     Third(u8) = 100
 }
+
+// Struct with only fixed-size fields (fixed-size struct) - with floats
+struct FixedSizeStructWithFloat {
+    a: u8
+    b: f32
+    c: u8
+}
+
+// Struct with only fixed-size fields that can be used as map key (no floats)
+struct FixedSizeStruct {
+    a: u8
+    b: u16
+    c: u8
+}
+
+// Struct with variable-size field (variable-size struct)
+struct VariableSizeStruct {
+    id: u32
+    name: string
+}
+
+// Arrays of structs in unions - fixed-size elements (no count prefix)
+union ArrayOfFixedStruct {
+    Items([FixedSizeStruct]) = 1  // BYTES, no count (struct is fixed-size)
+    Empty = 2
+}
+
+union ArrayOfFixedStructWithFloat {
+    Items([FixedSizeStructWithFloat]) = 1  // BYTES, no count (struct is fixed-size)
+    Empty = 2
+}
+
+// Arrays of structs in unions - variable-size elements (with count prefix)
+union ArrayOfVariableStruct {
+    Items([VariableSizeStruct]) = 1  // BYTES, with count (struct has string)
+    Empty = 2
+}
+
+// Maps with u8 key in unions
+union MapU8ToU8 {
+    Map({u8: u8}) = 1  // BYTES, no count (both key and value fixed-size)
+    Empty = 2
+}
+
+union MapU8ToFixedStruct {
+    Map({u8: FixedSizeStruct}) = 1  // BYTES, no count (both fixed-size)
+    Empty = 2
+}
+
+union MapU8ToString {
+    Map({u8: string}) = 1  // BYTES, with count (value is variable-size)
+    Empty = 2
+}
+
+// Maps with fixed-size struct key in unions
+union MapFixedStructToU8 {
+    Map({FixedSizeStruct: u8}) = 1  // BYTES, no count (both fixed-size)
+    Empty = 2
+}
+
+union MapFixedStructToFixedStruct {
+    Map({FixedSizeStruct: FixedSizeStruct}) = 1  // BYTES, no count (both fixed-size)
+    Empty = 2
+}
+
+union MapFixedStructToString {
+    Map({FixedSizeStruct: string}) = 1  // BYTES, with count (value is variable-size)
+    Empty = 2
+}
+
+// Maps with string key in unions
+union MapStringToU8 {
+    Map({string: u8}) = 1  // BYTES, with count (key is variable-size)
+    Empty = 2
+}
+
+union MapStringToFixedStruct {
+    Map({string: FixedSizeStruct}) = 1  // BYTES, with count (key is variable-size)
+    Empty = 2
+}
+
+union MapStringToString {
+    Map({string: string}) = 1  // BYTES, with count (both variable-size)
+    Empty = 2
+}

@@ -45,6 +45,8 @@ struct TestCase {
     description: String,
     hex: String,
     json: serde_json::Value,
+    #[serde(default)]
+    nondeterministic_encode: bool,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -150,7 +152,11 @@ fn json_eq_with_float_tolerance(a: &serde_json::Value, b: &serde_json::Value) ->
             }
         }
         (serde_json::Value::Array(a_arr), serde_json::Value::Array(b_arr)) => {
-            a_arr.len() == b_arr.len() && a_arr.iter().zip(b_arr.iter()).all(|(a, b)| json_eq_with_float_tolerance(a, b))
+            a_arr.len() == b_arr.len()
+                && a_arr
+                    .iter()
+                    .zip(b_arr.iter())
+                    .all(|(a, b)| json_eq_with_float_tolerance(a, b))
         }
         (serde_json::Value::Object(a_obj), serde_json::Value::Object(b_obj)) => {
             a_obj.len() == b_obj.len()
@@ -292,14 +298,40 @@ fn run_tests(suite: &str, lang: Language, child: Child, regen_hex: bool) -> Resu
             print!("  [{}] Encode {}: ", i, tc.description);
             match test_bin.encode(&tc.r#type, tc.json.clone()) {
                 Ok(encoded_hex) => {
-                    if encoded_hex == hex_clean {
-                        println!("✓");
-                        passed += 1;
+                    if tc.nondeterministic_encode {
+                        // For nondeterministic encoding, verify by doing a round-trip:
+                        // encode -> decode -> compare JSON
+                        match test_bin.decode(&tc.r#type, &encoded_hex) {
+                            Ok(roundtrip_json) => {
+                                if json_eq_with_float_tolerance(&roundtrip_json, &tc.json) {
+                                    println!("✓");
+                                    passed += 1;
+                                } else {
+                                    println!("✗");
+                                    println!("    Expected: {}", serde_json::to_string_pretty(&tc.json).unwrap());
+                                    println!(
+                                        "    Got:      {}",
+                                        serde_json::to_string_pretty(&roundtrip_json).unwrap()
+                                    );
+                                    failed += 1;
+                                }
+                            }
+                            Err(e) => {
+                                println!("✗ (decode error)");
+                                println!("    Error: {}", e);
+                                failed += 1;
+                            }
+                        }
                     } else {
-                        println!("✗");
-                        println!("    Expected: {}", hex_clean);
-                        println!("    Got:      {}", encoded_hex);
-                        failed += 1;
+                        if encoded_hex == hex_clean {
+                            println!("✓");
+                            passed += 1;
+                        } else {
+                            println!("✗");
+                            println!("    Expected: {}", hex_clean);
+                            println!("    Got:      {}", encoded_hex);
+                            failed += 1;
+                        }
                     }
                 }
                 Err(e) => {

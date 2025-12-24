@@ -127,3 +127,76 @@ message ExtendedVersionedMessage {
     extra_field?: u32 = 3
     new_field?: string = 4
 }
+
+// Struct with only fixed-size fields (fixed-size struct) - with floats
+struct FixedSizeStructWithFloat {
+    a: u8
+    b: f32
+    c: u8
+}
+
+// Struct with only fixed-size fields that can be used as map key (no floats)
+struct FixedSizeStruct {
+    a: u8
+    b: u16
+    c: u8
+}
+
+// Struct with variable-size field (variable-size struct)
+struct VariableSizeStruct {
+    id: u32
+    name: string
+}
+
+// Arrays of structs - fixed-size elements (no count prefix)
+message ArrayOfFixedStruct {
+    items: [FixedSizeStruct] = 1  // BYTES, no count (struct is fixed-size)
+}
+
+message ArrayOfFixedStructWithFloat {
+    items: [FixedSizeStructWithFloat] = 1  // BYTES, no count (struct is fixed-size)
+}
+
+// Arrays of structs - variable-size elements (with count prefix)
+message ArrayOfVariableStruct {
+    items: [VariableSizeStruct] = 1  // BYTES, with count (struct has string)
+}
+
+// Maps with u8 key
+message MapU8ToU8 {
+    map: {u8: u8} = 1  // BYTES, no count (both key and value fixed-size)
+}
+
+message MapU8ToFixedStruct {
+    map: {u8: FixedSizeStruct} = 1  // BYTES, no count (both fixed-size)
+}
+
+message MapU8ToString {
+    map: {u8: string} = 1  // BYTES, with count (value is variable-size)
+}
+
+// Maps with fixed-size struct key
+message MapFixedStructToU8 {
+    map: {FixedSizeStruct: u8} = 1  // BYTES, no count (both fixed-size)
+}
+
+message MapFixedStructToFixedStruct {
+    map: {FixedSizeStruct: FixedSizeStruct} = 1  // BYTES, no count (both fixed-size)
+}
+
+message MapFixedStructToString {
+    map: {FixedSizeStruct: string} = 1  // BYTES, with count (value is variable-size)
+}
+
+// Maps with string key
+message MapStringToU8 {
+    map: {string: u8} = 1  // BYTES, with count (key is variable-size)
+}
+
+message MapStringToFixedStruct {
+    map: {string: FixedSizeStruct} = 1  // BYTES, with count (key is variable-size)
+}
+
+message MapStringToString {
+    map: {string: string} = 1  // BYTES, with count (both variable-size)
+}

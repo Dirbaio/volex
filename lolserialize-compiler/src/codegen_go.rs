@@ -4,6 +4,19 @@ use std::fmt::Write;
 
 use crate::schema::*;
 
+fn wire_type_to_go_const(wire_type: WireType) -> &'static str {
+    match wire_type {
+        WireType::Fixed8 => "WireFixed8",
+        WireType::Varint => "WireVarint",
+        WireType::Fixed32 => "WireFixed32",
+        WireType::Fixed64 => "WireFixed64",
+        WireType::Bytes => "WireBytes",
+        WireType::Message => "WireMessage",
+        WireType::Union => "WireUnion",
+        WireType::Unit => "WireUnit",
+    }
+}
+
 pub fn generate(schema: &Schema, package_name: &str) -> String {
     let generator = GoCodeGenerator::new(schema, package_name);
     generator.generate()
@@ -13,33 +26,14 @@ struct GoCodeGenerator<'a> {
     schema: &'a Schema,
     package_name: &'a str,
     output: String,
-    enum_names: std::collections::HashSet<String>,
-    union_names: std::collections::HashSet<String>,
 }
 
 impl<'a> GoCodeGenerator<'a> {
     fn new(schema: &'a Schema, package_name: &'a str) -> Self {
-        // Collect all enum and union names
-        let mut enum_names = std::collections::HashSet::new();
-        let mut union_names = std::collections::HashSet::new();
-        for item in &schema.items {
-            match &item.node {
-                Item::Enum(e) => {
-                    enum_names.insert(e.name.node.clone());
-                }
-                Item::Union(u) => {
-                    union_names.insert(u.name.node.clone());
-                }
-                _ => {}
-            }
-        }
-
         Self {
             schema,
             package_name,
             output: String::new(),
-            enum_names,
-            union_names,
         }
     }
 
@@ -49,17 +43,16 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "package {}\n", self.package_name).unwrap();
 
         // Check if we need encoding/json (for enums, unions, structs/messages with []uint8 fields)
-        let needs_json = self.schema.items.iter().any(|item| {
-            match &item.node {
-                Item::Enum(_) | Item::Union(_) => true,
-                Item::Struct(s) => s.fields.iter().any(|f| {
-                    matches!(&f.node.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8))
-                }),
-                Item::Message(m) => m.fields.iter().any(|f| {
-                    matches!(&f.node.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8))
-                }),
-                _ => false,
-            }
+        let needs_json = self.schema.items.iter().any(|item| match &item.node {
+            Item::Enum(_) | Item::Union(_) => true,
+            Item::Struct(s) => s
+                .fields
+                .iter()
+                .any(|f| matches!(&f.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8))),
+            Item::Message(m) => m
+                .fields
+                .iter()
+                .any(|f| matches!(&f.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8))),
         });
 
         self.output.push_str("import (\n");
@@ -115,18 +108,18 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "type {} struct {{", s.name.node).unwrap();
 
         for field in &s.fields {
-            let ty = if field.node.optional {
-                self.go_type_optional(&field.node.ty.node)
+            let ty = if field.optional {
+                self.go_type_optional(&field.ty.node)
             } else {
-                self.go_type(&field.node.ty.node)
+                self.go_type(&field.ty.node)
             };
             // Don't use omitempty - we want to serialize null for optional fields
             writeln!(
                 self.output,
                 "\t{} {} `json:\"{}\"`",
-                to_pascal_case(&field.node.name.node),
+                to_pascal_case(&field.name.node),
                 ty,
-                &field.node.name.node
+                &field.name.node
             )
             .unwrap();
         }
@@ -137,7 +130,7 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "func (s *{}) Encode(buf *[]byte) {{", s.name.node).unwrap();
 
         // Handle optional fields - encode presence bits first
-        let optional_fields: Vec<_> = s.fields.iter().filter(|f| f.node.optional).collect();
+        let optional_fields: Vec<_> = s.fields.iter().filter(|f| f.optional).collect();
         if !optional_fields.is_empty() {
             self.output.push_str("\t// Encode presence bits\n");
             self.output.push_str("\tpresence := []bool{");
@@ -145,7 +138,7 @@ impl<'a> GoCodeGenerator<'a> {
                 if i > 0 {
                     self.output.push_str(", ");
                 }
-                write!(self.output, "s.{} != nil", to_pascal_case(&field.node.name.node)).unwrap();
+                write!(self.output, "s.{} != nil", to_pascal_case(&field.name.node)).unwrap();
             }
             self.output.push_str("}\n");
             self.output.push_str("\tEncodePresenceBits(presence, buf)\n\n");
@@ -153,15 +146,15 @@ impl<'a> GoCodeGenerator<'a> {
 
         // Encode each field
         for field in &s.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if field.node.optional {
+            let field_name = to_pascal_case(&field.name.node);
+            if field.optional {
                 writeln!(self.output, "\tif s.{} != nil {{", field_name).unwrap();
                 // For optional fields, we need to dereference the pointer
                 // Use parentheses to avoid ambiguity with method calls
-                self.encode_value(&format!("(*s.{})", field_name), &field.node.ty.node, 2);
+                self.encode_value(&format!("(*s.{})", field_name), &field.ty.node, 2);
                 self.output.push_str("\t}\n");
             } else {
-                self.encode_value(&format!("s.{}", field_name), &field.node.ty.node, 1);
+                self.encode_value(&format!("s.{}", field_name), &field.ty.node, 1);
             }
         }
 
@@ -198,14 +191,20 @@ impl<'a> GoCodeGenerator<'a> {
         // Decode each field
         let mut presence_idx = 0;
         for field in &s.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if field.node.optional {
+            let field_name = to_pascal_case(&field.name.node);
+            if field.optional {
                 writeln!(self.output, "\tif presence[{}] {{", presence_idx).unwrap();
-                self.decode_value(&format!("result.{}", field_name), &field.node.ty.node, 2, true, &s.name.node);
+                self.decode_value(&format!("result.{}", field_name), &field.ty.node, 2, true, &s.name.node);
                 self.output.push_str("\t}\n");
                 presence_idx += 1;
             } else {
-                self.decode_value(&format!("result.{}", field_name), &field.node.ty.node, 1, false, &s.name.node);
+                self.decode_value(
+                    &format!("result.{}", field_name),
+                    &field.ty.node,
+                    1,
+                    false,
+                    &s.name.node,
+                );
             }
         }
 
@@ -218,29 +217,35 @@ impl<'a> GoCodeGenerator<'a> {
 
     fn gen_struct_json_marshaling(&mut self, s: &Struct) {
         // Check if any field needs custom marshaling ([]uint8)
-        let has_u8_array = s.fields.iter().any(|f| {
-            matches!(&f.node.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8))
-        });
+        let has_u8_array = s
+            .fields
+            .iter()
+            .any(|f| matches!(&f.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8)));
 
         if !has_u8_array {
             return;
         }
 
         // Generate MarshalJSON to convert []uint8 to JSON array instead of base64 string
-        writeln!(self.output, "\nfunc (s {}) MarshalJSON() ([]byte, error) {{", s.name.node).unwrap();
+        writeln!(
+            self.output,
+            "\nfunc (s {}) MarshalJSON() ([]byte, error) {{",
+            s.name.node
+        )
+        .unwrap();
         writeln!(self.output, "\ttype Alias {}", s.name.node).unwrap();
         writeln!(self.output, "\taux := &struct {{").unwrap();
 
         for field in &s.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    let ty = if field.node.optional {
+                    let ty = if field.optional {
                         "*[]interface{}".to_string()
                     } else {
                         "[]interface{}".to_string()
                     };
-                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.node.name.node).unwrap();
+                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.name.node).unwrap();
                 }
             }
         }
@@ -251,10 +256,10 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "\t}}").unwrap();
 
         for field in &s.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    if field.node.optional {
+                    if field.optional {
                         writeln!(self.output, "\tif s.{} != nil {{", field_name).unwrap();
                         writeln!(self.output, "\t\tarr := make([]interface{{}}, len(*s.{}))", field_name).unwrap();
                         writeln!(self.output, "\t\tfor i, v := range *s.{} {{", field_name).unwrap();
@@ -263,7 +268,12 @@ impl<'a> GoCodeGenerator<'a> {
                         writeln!(self.output, "\t\taux.{} = &arr", field_name).unwrap();
                         writeln!(self.output, "\t}}").unwrap();
                     } else {
-                        writeln!(self.output, "\taux.{} = make([]interface{{}}, len(s.{}))", field_name, field_name).unwrap();
+                        writeln!(
+                            self.output,
+                            "\taux.{} = make([]interface{{}}, len(s.{}))",
+                            field_name, field_name
+                        )
+                        .unwrap();
                         writeln!(self.output, "\tfor i, v := range s.{} {{", field_name).unwrap();
                         writeln!(self.output, "\t\taux.{}[i] = v", field_name).unwrap();
                         writeln!(self.output, "\t}}").unwrap();
@@ -276,20 +286,25 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "}}").unwrap();
 
         // Generate UnmarshalJSON
-        writeln!(self.output, "\nfunc (s *{}) UnmarshalJSON(data []byte) error {{", s.name.node).unwrap();
+        writeln!(
+            self.output,
+            "\nfunc (s *{}) UnmarshalJSON(data []byte) error {{",
+            s.name.node
+        )
+        .unwrap();
         writeln!(self.output, "\ttype Alias {}", s.name.node).unwrap();
         writeln!(self.output, "\taux := &struct {{").unwrap();
 
         for field in &s.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    let ty = if field.node.optional {
+                    let ty = if field.optional {
                         "*[]interface{}".to_string()
                     } else {
                         "[]interface{}".to_string()
                     };
-                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.node.name.node).unwrap();
+                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.name.node).unwrap();
                 }
             }
         }
@@ -304,10 +319,10 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "\t}}").unwrap();
 
         for field in &s.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    if field.node.optional {
+                    if field.optional {
                         writeln!(self.output, "\tif aux.{} != nil {{", field_name).unwrap();
                         writeln!(self.output, "\t\tarr := make([]uint8, len(*aux.{}))", field_name).unwrap();
                         writeln!(self.output, "\t\tfor i, v := range *aux.{} {{", field_name).unwrap();
@@ -317,9 +332,19 @@ impl<'a> GoCodeGenerator<'a> {
                         writeln!(self.output, "\t}}").unwrap();
                     } else {
                         writeln!(self.output, "\tif aux.{} != nil {{", field_name).unwrap();
-                        writeln!(self.output, "\t\ts.{} = make([]uint8, len(aux.{}))", field_name, field_name).unwrap();
+                        writeln!(
+                            self.output,
+                            "\t\ts.{} = make([]uint8, len(aux.{}))",
+                            field_name, field_name
+                        )
+                        .unwrap();
                         writeln!(self.output, "\t\tfor i, v := range aux.{} {{", field_name).unwrap();
-                        writeln!(self.output, "\t\t\tif f, ok := v.(float64); ok {{ s.{}[i] = uint8(f) }}", field_name).unwrap();
+                        writeln!(
+                            self.output,
+                            "\t\t\tif f, ok := v.(float64); ok {{ s.{}[i] = uint8(f) }}",
+                            field_name
+                        )
+                        .unwrap();
                         writeln!(self.output, "\t\t}}").unwrap();
                         writeln!(self.output, "\t}}").unwrap();
                     }
@@ -335,18 +360,18 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "type {} struct {{", m.name.node).unwrap();
 
         for field in &m.fields {
-            let ty = if field.node.optional {
-                self.go_type_optional(&field.node.ty.node)
+            let ty = if field.optional {
+                self.go_type_optional(&field.ty.node)
             } else {
-                self.go_type(&field.node.ty.node)
+                self.go_type(&field.ty.node)
             };
             // Don't use omitempty - we want to serialize null for optional fields
             writeln!(
                 self.output,
                 "\t{} {} `json:\"{}\"`",
-                to_pascal_case(&field.node.name.node),
+                to_pascal_case(&field.name.node),
                 ty,
-                &field.node.name.node
+                &field.name.node
             )
             .unwrap();
         }
@@ -356,16 +381,20 @@ impl<'a> GoCodeGenerator<'a> {
         // Generate Encode method
         writeln!(self.output, "func (m *{}) Encode(buf *[]byte) {{", m.name.node).unwrap();
 
-        for field in &m.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            let index = field.node.index.node;
+        // Sort fields by index for encoding in index order
+        let mut sorted_fields: Vec<_> = m.fields.iter().collect();
+        sorted_fields.sort_by_key(|f| f.index.node);
 
-            if field.node.optional {
+        for field in sorted_fields {
+            let field_name = to_pascal_case(&field.name.node);
+            let index = field.index.node;
+
+            if field.optional {
                 writeln!(self.output, "\tif m.{} != nil {{", field_name).unwrap();
-                self.encode_tagged_field(index, &format!("(*m.{})", field_name), &field.node.ty.node, 2);
+                self.encode_tagged_field(index, &format!("(*m.{})", field_name), &field.ty.node, 2);
                 self.output.push_str("\t}\n");
             } else {
-                self.encode_tagged_field(index, &format!("m.{}", field_name), &field.node.ty.node, 1);
+                self.encode_tagged_field(index, &format!("m.{}", field_name), &field.ty.node, 1);
             }
         }
 
@@ -391,14 +420,14 @@ impl<'a> GoCodeGenerator<'a> {
         self.output.push_str("\t\tswitch index {\n");
 
         for field in &m.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            let index = field.node.index.node;
+            let field_name = to_pascal_case(&field.name.node);
+            let index = field.index.node;
             writeln!(self.output, "\t\tcase {}:", index).unwrap();
             self.decode_tagged_field(
                 &format!("result.{}", field_name),
-                &field.node.ty.node,
+                &field.ty.node,
                 3,
-                field.node.optional,
+                field.optional,
                 &m.name.node,
             );
         }
@@ -419,29 +448,35 @@ impl<'a> GoCodeGenerator<'a> {
 
     fn gen_message_json_marshaling(&mut self, m: &Message) {
         // Check if any field needs custom marshaling ([]uint8)
-        let has_u8_array = m.fields.iter().any(|f| {
-            matches!(&f.node.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8))
-        });
+        let has_u8_array = m
+            .fields
+            .iter()
+            .any(|f| matches!(&f.ty.node, Type::Array(inner) if matches!(&inner.node, Type::U8)));
 
         if !has_u8_array {
             return;
         }
 
         // Generate MarshalJSON to convert []uint8 to JSON array instead of base64 string
-        writeln!(self.output, "\nfunc (m {}) MarshalJSON() ([]byte, error) {{", m.name.node).unwrap();
+        writeln!(
+            self.output,
+            "\nfunc (m {}) MarshalJSON() ([]byte, error) {{",
+            m.name.node
+        )
+        .unwrap();
         writeln!(self.output, "\ttype Alias {}", m.name.node).unwrap();
         writeln!(self.output, "\taux := &struct {{").unwrap();
 
         for field in &m.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    let ty = if field.node.optional {
+                    let ty = if field.optional {
                         "*[]interface{}".to_string()
                     } else {
                         "[]interface{}".to_string()
                     };
-                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.node.name.node).unwrap();
+                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.name.node).unwrap();
                 }
             }
         }
@@ -452,10 +487,10 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "\t}}").unwrap();
 
         for field in &m.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    if field.node.optional {
+                    if field.optional {
                         writeln!(self.output, "\tif m.{} != nil {{", field_name).unwrap();
                         writeln!(self.output, "\t\tarr := make([]interface{{}}, len(*m.{}))", field_name).unwrap();
                         writeln!(self.output, "\t\tfor i, v := range *m.{} {{", field_name).unwrap();
@@ -464,7 +499,12 @@ impl<'a> GoCodeGenerator<'a> {
                         writeln!(self.output, "\t\taux.{} = &arr", field_name).unwrap();
                         writeln!(self.output, "\t}}").unwrap();
                     } else {
-                        writeln!(self.output, "\taux.{} = make([]interface{{}}, len(m.{}))", field_name, field_name).unwrap();
+                        writeln!(
+                            self.output,
+                            "\taux.{} = make([]interface{{}}, len(m.{}))",
+                            field_name, field_name
+                        )
+                        .unwrap();
                         writeln!(self.output, "\tfor i, v := range m.{} {{", field_name).unwrap();
                         writeln!(self.output, "\t\taux.{}[i] = v", field_name).unwrap();
                         writeln!(self.output, "\t}}").unwrap();
@@ -477,20 +517,25 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "}}").unwrap();
 
         // Generate UnmarshalJSON
-        writeln!(self.output, "\nfunc (m *{}) UnmarshalJSON(data []byte) error {{", m.name.node).unwrap();
+        writeln!(
+            self.output,
+            "\nfunc (m *{}) UnmarshalJSON(data []byte) error {{",
+            m.name.node
+        )
+        .unwrap();
         writeln!(self.output, "\ttype Alias {}", m.name.node).unwrap();
         writeln!(self.output, "\taux := &struct {{").unwrap();
 
         for field in &m.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    let ty = if field.node.optional {
+                    let ty = if field.optional {
                         "*[]interface{}".to_string()
                     } else {
                         "[]interface{}".to_string()
                     };
-                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.node.name.node).unwrap();
+                    writeln!(self.output, "\t\t{} {} `json:\"{}\"`", field_name, ty, &field.name.node).unwrap();
                 }
             }
         }
@@ -505,10 +550,10 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "\t}}").unwrap();
 
         for field in &m.fields {
-            let field_name = to_pascal_case(&field.node.name.node);
-            if let Type::Array(inner) = &field.node.ty.node {
+            let field_name = to_pascal_case(&field.name.node);
+            if let Type::Array(inner) = &field.ty.node {
                 if matches!(&inner.node, Type::U8) {
-                    if field.node.optional {
+                    if field.optional {
                         writeln!(self.output, "\tif aux.{} != nil {{", field_name).unwrap();
                         writeln!(self.output, "\t\tarr := make([]uint8, len(*aux.{}))", field_name).unwrap();
                         writeln!(self.output, "\t\tfor i, v := range *aux.{} {{", field_name).unwrap();
@@ -518,9 +563,19 @@ impl<'a> GoCodeGenerator<'a> {
                         writeln!(self.output, "\t}}").unwrap();
                     } else {
                         writeln!(self.output, "\tif aux.{} != nil {{", field_name).unwrap();
-                        writeln!(self.output, "\t\tm.{} = make([]uint8, len(aux.{}))", field_name, field_name).unwrap();
+                        writeln!(
+                            self.output,
+                            "\t\tm.{} = make([]uint8, len(aux.{}))",
+                            field_name, field_name
+                        )
+                        .unwrap();
                         writeln!(self.output, "\t\tfor i, v := range aux.{} {{", field_name).unwrap();
-                        writeln!(self.output, "\t\t\tif f, ok := v.(float64); ok {{ m.{}[i] = uint8(f) }}", field_name).unwrap();
+                        writeln!(
+                            self.output,
+                            "\t\t\tif f, ok := v.(float64); ok {{ m.{}[i] = uint8(f) }}",
+                            field_name
+                        )
+                        .unwrap();
                         writeln!(self.output, "\t\t}}").unwrap();
                         writeln!(self.output, "\t}}").unwrap();
                     }
@@ -541,9 +596,9 @@ impl<'a> GoCodeGenerator<'a> {
                 self.output,
                 "\t{}{} {} = {}",
                 e.name.node,
-                to_pascal_case(&variant.node.name.node),
+                to_pascal_case(&variant.name.node),
                 e.name.node,
-                variant.node.index.node
+                variant.index.node
             )
             .unwrap();
         }
@@ -566,12 +621,12 @@ impl<'a> GoCodeGenerator<'a> {
         self.output.push_str("\tswitch v {\n");
 
         for variant in &e.variants {
-            writeln!(self.output, "\tcase {}:", variant.node.index.node).unwrap();
+            writeln!(self.output, "\tcase {}:", variant.index.node).unwrap();
             writeln!(
                 self.output,
                 "\t\treturn {}{}, nil",
                 e.name.node,
-                to_pascal_case(&variant.node.name.node)
+                to_pascal_case(&variant.name.node)
             )
             .unwrap();
         }
@@ -589,15 +644,10 @@ impl<'a> GoCodeGenerator<'a> {
                 self.output,
                 "\tcase {}{}:",
                 e.name.node,
-                to_pascal_case(&variant.node.name.node)
+                to_pascal_case(&variant.name.node)
             )
             .unwrap();
-            writeln!(
-                self.output,
-                "\t\treturn []byte(\"\\\"{}\\\"\"), nil",
-                variant.node.name.node
-            )
-            .unwrap();
+            writeln!(self.output, "\t\treturn []byte(\"\\\"{}\\\"\"), nil", variant.name.node).unwrap();
         }
         self.output.push_str("\tdefault:\n");
         self.output.push_str("\t\treturn nil, ErrUnknownEnumVariant\n");
@@ -616,12 +666,12 @@ impl<'a> GoCodeGenerator<'a> {
             .push_str("\tif err := json.Unmarshal(data, &s); err != nil {\n\t\treturn err\n\t}\n");
         self.output.push_str("\tswitch s {\n");
         for variant in &e.variants {
-            writeln!(self.output, "\tcase \"{}\":", variant.node.name.node).unwrap();
+            writeln!(self.output, "\tcase \"{}\":", variant.name.node).unwrap();
             writeln!(
                 self.output,
                 "\t\t*e = {}{}",
                 e.name.node,
-                to_pascal_case(&variant.node.name.node)
+                to_pascal_case(&variant.name.node)
             )
             .unwrap();
         }
@@ -641,9 +691,9 @@ impl<'a> GoCodeGenerator<'a> {
 
         // Generate variant types
         for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.node.name.node));
+            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
 
-            if let Some(ref ty) = variant.node.ty {
+            if let Some(ref ty) = variant.ty {
                 writeln!(self.output, "type {} struct {{", variant_name).unwrap();
                 writeln!(self.output, "\tValue {}", self.go_type(&ty.node)).unwrap();
                 self.output.push_str("}\n\n");
@@ -656,12 +706,18 @@ impl<'a> GoCodeGenerator<'a> {
 
             // Encode method for variant
             writeln!(self.output, "func (v {}) Encode(buf *[]byte) {{", variant_name).unwrap();
-            let index = variant.node.index.node;
+            let index = variant.index.node;
 
-            if let Some(ref ty) = variant.node.ty {
-                let wire_type = self.wire_type(&ty.node);
-                writeln!(self.output, "\tEncodeTag({}, {}, buf)", index, wire_type).unwrap();
-                if wire_type == "WireBytes" {
+            if let Some(ref ty) = variant.ty {
+                let wire_type = self.schema.wire_type(&ty.node);
+                writeln!(
+                    self.output,
+                    "\tEncodeTag({}, {}, buf)",
+                    index,
+                    wire_type_to_go_const(wire_type)
+                )
+                .unwrap();
+                if wire_type == WireType::Bytes {
                     self.output.push_str("\t// Encode length-delimited\n");
                     self.output.push_str("\tlengthBuf := []byte{}\n");
                     self.encode_value("v.Value", &ty.node, 1);
@@ -670,7 +726,13 @@ impl<'a> GoCodeGenerator<'a> {
                     self.encode_value("v.Value", &ty.node, 1);
                 }
             } else {
-                writeln!(self.output, "\tEncodeTag({}, WireUnit, buf)", index).unwrap();
+                writeln!(
+                    self.output,
+                    "\tEncodeTag({}, {}, buf)",
+                    index,
+                    wire_type_to_go_const(WireType::Unit)
+                )
+                .unwrap();
             }
 
             self.output.push_str("}\n\n");
@@ -688,16 +750,16 @@ impl<'a> GoCodeGenerator<'a> {
         self.output.push_str("\tswitch index {\n");
 
         for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.node.name.node));
-            writeln!(self.output, "\tcase {}:", variant.node.index.node).unwrap();
+            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
+            writeln!(self.output, "\tcase {}:", variant.index.node).unwrap();
 
-            if let Some(ref ty) = variant.node.ty {
+            if let Some(ref ty) = variant.ty {
                 self.output.push_str("\t\tvar value ");
                 self.output.push_str(&self.go_type(&ty.node));
                 self.output.push('\n');
 
-                let wire_type = self.wire_type(&ty.node);
-                if wire_type == "WireBytes" {
+                let wire_type = self.schema.wire_type(&ty.node);
+                if wire_type == WireType::Bytes {
                     self.output.push_str("\t\tlength, err := DecodeLEB128(buf)\n");
                     self.output
                         .push_str("\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n");
@@ -718,7 +780,7 @@ impl<'a> GoCodeGenerator<'a> {
                     self.output,
                     "\t\treturn {}{{{}}}, nil",
                     variant_name,
-                    if self.is_named_type(&ty.node) {
+                    if matches!(&ty.node, Type::Named(_)) {
                         "value"
                     } else {
                         "Value: value"
@@ -737,8 +799,8 @@ impl<'a> GoCodeGenerator<'a> {
 
         // Generate JSON marshaling for each variant
         for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.node.name.node));
-            let orig_name = &variant.node.name.node;
+            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
+            let orig_name = &variant.name.node;
 
             // MarshalJSON
             writeln!(
@@ -747,7 +809,7 @@ impl<'a> GoCodeGenerator<'a> {
                 variant_name
             )
             .unwrap();
-            if variant.node.ty.is_some() {
+            if variant.ty.is_some() {
                 writeln!(self.output, "\tm := map[string]interface{{}}{{").unwrap();
                 writeln!(self.output, "\t\t\"$tag\": \"{}\",", orig_name).unwrap();
                 writeln!(self.output, "\t\t\"$value\": v.Value,").unwrap();
@@ -779,9 +841,9 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "\tif err := json.Unmarshal(data, &tag); err == nil {{").unwrap();
         writeln!(self.output, "\t\tswitch tag {{").unwrap();
         for variant in &u.variants {
-            if variant.node.ty.is_none() {
-                let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.node.name.node));
-                writeln!(self.output, "\t\tcase \"{}\":", variant.node.name.node).unwrap();
+            if variant.ty.is_none() {
+                let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
+                writeln!(self.output, "\t\tcase \"{}\":", variant.name.node).unwrap();
                 writeln!(self.output, "\t\t\treturn {}{{}}, nil", variant_name).unwrap();
             }
         }
@@ -794,9 +856,9 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "\tswitch wrapper.Tag {{").unwrap();
         for variant in &u.variants {
-            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.node.name.node));
-            writeln!(self.output, "\tcase \"{}\":", variant.node.name.node).unwrap();
-            if let Some(ref ty) = variant.node.ty {
+            let variant_name = format!("{}{}", u.name.node, to_pascal_case(&variant.name.node));
+            writeln!(self.output, "\tcase \"{}\":", variant.name.node).unwrap();
+            if let Some(ref ty) = variant.ty {
                 writeln!(self.output, "\t\tvar value {}", self.go_type(&ty.node)).unwrap();
                 writeln!(
                     self.output,
@@ -844,18 +906,8 @@ impl<'a> GoCodeGenerator<'a> {
                 self.encode_value("v", &v.node, indent + 1);
                 writeln!(self.output, "{}}}", tabs).unwrap();
             }
-            Type::Named(name) => {
-                if self.enum_names.contains(name) {
-                    // Enums have a value receiver Encode method
-                    writeln!(self.output, "{}{}.Encode(buf)", tabs, value).unwrap()
-                } else if self.union_names.contains(name) {
-                    // Unions are interfaces - just call Encode directly
-                    writeln!(self.output, "{}{}.Encode(buf)", tabs, value).unwrap()
-                } else {
-                    // Structs/messages have pointer receiver Encode method
-                    // We need to pass the address of the value
-                    writeln!(self.output, "{}(&{}).Encode(buf)", tabs, value).unwrap()
-                }
+            Type::Named(_) => {
+                writeln!(self.output, "{}{}.Encode(buf)", tabs, value).unwrap();
             }
         }
     }
@@ -919,7 +971,15 @@ impl<'a> GoCodeGenerator<'a> {
         }
     }
 
-    fn decode_map(&mut self, target: &str, key_ty: &Type, val_ty: &Type, indent: usize, optional: bool, parent_type: &str) {
+    fn decode_map(
+        &mut self,
+        target: &str,
+        key_ty: &Type,
+        val_ty: &Type,
+        indent: usize,
+        optional: bool,
+        parent_type: &str,
+    ) {
         let tabs = "\t".repeat(indent);
         let key_go_type = self.go_type(key_ty);
         let val_go_type = self.go_type(val_ty);
@@ -931,9 +991,19 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "{}}}", tabs).unwrap();
 
         if optional {
-            writeln!(self.output, "{}m := make(map[{}]{}, count)", tabs, key_go_type, val_go_type).unwrap();
+            writeln!(
+                self.output,
+                "{}m := make(map[{}]{}, count)",
+                tabs, key_go_type, val_go_type
+            )
+            .unwrap();
         } else {
-            writeln!(self.output, "{}{} = make(map[{}]{}, count)", tabs, target, key_go_type, val_go_type).unwrap();
+            writeln!(
+                self.output,
+                "{}{} = make(map[{}]{}, count)",
+                tabs, target, key_go_type, val_go_type
+            )
+            .unwrap();
         }
 
         writeln!(self.output, "{}for i := uint64(0); i < count; i++ {{", tabs).unwrap();
@@ -993,7 +1063,7 @@ impl<'a> GoCodeGenerator<'a> {
             writeln!(self.output, "{}{{", tabs).unwrap();
             writeln!(self.output, "{}\tlengthBuf := []byte{{}}", tabs).unwrap();
             writeln!(self.output, "{}\ttmpBuf := &lengthBuf", tabs).unwrap();
-            self.encode_value_to_buf(value, ty, indent + 1, "tmpBuf");
+            self.encode_value_to_buf(value, ty, indent + 1, "tmpBuf", true);
             writeln!(self.output, "{}\tEncodeLEB128(uint64(len(lengthBuf)), buf)", tabs).unwrap();
             writeln!(self.output, "{}\t*buf = append(*buf, lengthBuf...)", tabs).unwrap();
             writeln!(self.output, "{}}}", tabs).unwrap();
@@ -1002,7 +1072,7 @@ impl<'a> GoCodeGenerator<'a> {
         }
     }
 
-    fn encode_value_to_buf(&mut self, value: &str, ty: &Type, indent: usize, buf_var: &str) {
+    fn encode_value_to_buf(&mut self, value: &str, ty: &Type, indent: usize, buf_var: &str, in_bytes_field: bool) {
         let tabs = "\t".repeat(indent);
         match ty {
             Type::Bool => writeln!(self.output, "{}EncodeBool({}, {})", tabs, value, buf_var).unwrap(),
@@ -1016,32 +1086,63 @@ impl<'a> GoCodeGenerator<'a> {
             Type::I64 => writeln!(self.output, "{}EncodeI64({}, {})", tabs, value, buf_var).unwrap(),
             Type::F32 => writeln!(self.output, "{}EncodeF32({}, {})", tabs, value, buf_var).unwrap(),
             Type::F64 => writeln!(self.output, "{}EncodeF64({}, {})", tabs, value, buf_var).unwrap(),
-            Type::String => writeln!(self.output, "{}EncodeString({}, {})", tabs, value, buf_var).unwrap(),
+            Type::String => {
+                if in_bytes_field {
+                    // String is a direct BYTES field - outer length already encoded, just append raw bytes
+                    writeln!(self.output, "{}*{} = append(*{}, {}...)", tabs, buf_var, buf_var, value).unwrap();
+                } else {
+                    // String is nested (e.g., in array) - needs its own length prefix
+                    writeln!(self.output, "{}EncodeString({}, {})", tabs, value, buf_var).unwrap();
+                }
+            }
             Type::Array(inner) => {
-                writeln!(self.output, "{}EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
-                writeln!(self.output, "{}for _, item := range {} {{", tabs, value).unwrap();
-                self.encode_value_to_buf("item", &inner.node, indent + 1, buf_var);
-                writeln!(self.output, "{}}}", tabs).unwrap();
+                // Arrays in BYTES fields: only include count if elements are variable-size
+                if {
+                    let this = &self;
+                    let ty: &Type = &inner.node;
+                    this.schema.fixed_size(ty).is_some()
+                } {
+                    // Fixed-size elements: no count prefix
+                    writeln!(self.output, "{}for _, item := range {} {{", tabs, value).unwrap();
+                    self.encode_value_to_buf("item", &inner.node, indent + 1, buf_var, false);
+                    writeln!(self.output, "{}}}", tabs).unwrap();
+                } else {
+                    // Variable-size elements: include count prefix
+                    writeln!(self.output, "{}EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
+                    writeln!(self.output, "{}for _, item := range {} {{", tabs, value).unwrap();
+                    self.encode_value_to_buf("item", &inner.node, indent + 1, buf_var, false);
+                    writeln!(self.output, "{}}}", tabs).unwrap();
+                }
             }
             Type::Map(k, v) => {
-                writeln!(self.output, "{}EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
-                writeln!(self.output, "{}for k, v := range {} {{", tabs, value).unwrap();
-                self.encode_value_to_buf("k", &k.node, indent + 1, buf_var);
-                self.encode_value_to_buf("v", &v.node, indent + 1, buf_var);
-                writeln!(self.output, "{}}}", tabs).unwrap();
-            }
-            Type::Named(name) => {
-                if self.enum_names.contains(name) {
-                    // Enums have a value receiver Encode method
-                    writeln!(self.output, "{}{}.Encode({})", tabs, value, buf_var).unwrap()
-                } else if self.union_names.contains(name) {
-                    // Unions are interfaces - just call Encode directly
-                    writeln!(self.output, "{}{}.Encode({})", tabs, value, buf_var).unwrap()
+                // Maps in BYTES fields: only include count if entries are variable-size
+                let key_fixed = {
+                    let this = &self;
+                    let ty: &Type = &k.node;
+                    this.schema.fixed_size(ty).is_some()
+                };
+                let val_fixed = {
+                    let this = &self;
+                    let ty: &Type = &v.node;
+                    this.schema.fixed_size(ty).is_some()
+                };
+                if key_fixed && val_fixed {
+                    // Fixed-size entries: no count prefix
+                    writeln!(self.output, "{}for k, v := range {} {{", tabs, value).unwrap();
+                    self.encode_value_to_buf("k", &k.node, indent + 1, buf_var, false);
+                    self.encode_value_to_buf("v", &v.node, indent + 1, buf_var, false);
+                    writeln!(self.output, "{}}}", tabs).unwrap();
                 } else {
-                    // Structs/messages have pointer receiver Encode method
-                    // We need to pass the address of the value
-                    writeln!(self.output, "{}(&{}).Encode({})", tabs, value, buf_var).unwrap()
+                    // Variable-size entries: include count prefix
+                    writeln!(self.output, "{}EncodeLEB128(uint64(len({})), {})", tabs, value, buf_var).unwrap();
+                    writeln!(self.output, "{}for k, v := range {} {{", tabs, value).unwrap();
+                    self.encode_value_to_buf("k", &k.node, indent + 1, buf_var, false);
+                    self.encode_value_to_buf("v", &v.node, indent + 1, buf_var, false);
+                    writeln!(self.output, "{}}}", tabs).unwrap();
                 }
+            }
+            Type::Named(_) => {
+                writeln!(self.output, "{}{}.Encode({})", tabs, value, buf_var).unwrap();
             }
         }
     }
@@ -1056,31 +1157,212 @@ impl<'a> GoCodeGenerator<'a> {
             writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
             writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
             writeln!(self.output, "{}}}", tabs).unwrap();
-            writeln!(self.output, "{}_ = length // TODO: use for bounds checking", tabs).unwrap();
+
+            // Special handling for strings, arrays, and maps in BYTES fields
+            match ty {
+                Type::String => {
+                    // Strings in BYTES fields: no inner length prefix, just read 'length' bytes
+                    // Bounds checking is implicit in the slice operation - Go will panic if out of bounds
+                    // The runtime's error handling will catch this
+                    if optional {
+                        writeln!(self.output, "{}s := string((*buf)[:length])", tabs).unwrap();
+                        writeln!(self.output, "{}{} = &s", tabs, target).unwrap();
+                    } else {
+                        writeln!(self.output, "{}{} = string((*buf)[:length])", tabs, target).unwrap();
+                    }
+                    writeln!(self.output, "{}*buf = (*buf)[length:]", tabs).unwrap();
+                    return; // String was handled, skip normal decode
+                }
+                Type::Array(inner) => {
+                    self.decode_array_from_bytes(target, &inner.node, indent, optional, parent_type, "length");
+                    return; // Array was handled, skip normal decode
+                }
+                Type::Map(k, v) => {
+                    self.decode_map_from_bytes(target, &k.node, &v.node, indent, optional, parent_type, "length");
+                    return; // Map was handled, skip normal decode
+                }
+                _ => {}
+            }
+
+            // For structs/messages/named types, mark length as used and continue with normal decode
+            writeln!(
+                self.output,
+                "{}_ = length // Bounds checking done by individual field decoders",
+                tabs
+            )
+            .unwrap();
         }
 
         self.decode_value(target, ty, indent, optional, parent_type);
     }
 
-    fn wire_type(&self, ty: &Type) -> &'static str {
-        match ty {
-            Type::Bool | Type::U8 | Type::I8 => "WireFixed8",
-            Type::U16 | Type::U32 | Type::U64 | Type::I16 | Type::I32 | Type::I64 => "WireVarint",
-            Type::F32 => "WireFixed32",
-            Type::F64 => "WireFixed64",
-            Type::String | Type::Array(_) | Type::Map(_, _) => "WireBytes",
-            Type::Named(name) => {
-                if self.enum_names.contains(name) {
-                    "WireVarint" // Enums use VARINT
-                } else {
-                    "WireBytes" // Structs and messages use BYTES
-                }
+    fn decode_array_from_bytes(
+        &mut self,
+        target: &str,
+        elem_ty: &Type,
+        indent: usize,
+        optional: bool,
+        parent_type: &str,
+        length_var: &str,
+    ) {
+        let tabs = "\t".repeat(indent);
+        let elem_go_type = self.go_type(elem_ty);
+
+        if let Some(elem_size) = self.schema.fixed_size(elem_ty) {
+            // Fixed-size elements: no count prefix, infer count from length / element_size
+            writeln!(self.output, "{}count := {} / {}", tabs, length_var, elem_size).unwrap();
+            if optional {
+                writeln!(self.output, "{}arr := make([]{}, count)", tabs, elem_go_type).unwrap();
+            } else {
+                writeln!(self.output, "{}{} = make([]{}, count)", tabs, target, elem_go_type).unwrap();
+            }
+            writeln!(self.output, "{}for i := uint64(0); i < count; i++ {{", tabs).unwrap();
+            let item_target = if optional { "arr[i]" } else { &format!("{}[i]", target) };
+            self.decode_value_inline(item_target, elem_ty, indent + 1, parent_type);
+            writeln!(self.output, "{}}}", tabs).unwrap();
+            if optional {
+                writeln!(self.output, "{}{} = &arr", tabs, target).unwrap();
+            }
+        } else {
+            // Variable-size elements: read count prefix, then elements
+            writeln!(self.output, "{}_ = {} // Outer BYTES length", tabs, length_var).unwrap();
+            writeln!(self.output, "{}count, err := DecodeLEB128(buf)", tabs).unwrap();
+            writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
+            writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
+            writeln!(self.output, "{}}}", tabs).unwrap();
+            if optional {
+                writeln!(self.output, "{}arr := make([]{}, count)", tabs, elem_go_type).unwrap();
+            } else {
+                writeln!(self.output, "{}{} = make([]{}, count)", tabs, target, elem_go_type).unwrap();
+            }
+            writeln!(self.output, "{}for i := uint64(0); i < count; i++ {{", tabs).unwrap();
+            let item_target = if optional { "arr[i]" } else { &format!("{}[i]", target) };
+            self.decode_value_inline(item_target, elem_ty, indent + 1, parent_type);
+            writeln!(self.output, "{}}}", tabs).unwrap();
+            if optional {
+                writeln!(self.output, "{}{} = &arr", tabs, target).unwrap();
             }
         }
     }
 
-    fn is_named_type(&self, ty: &Type) -> bool {
-        matches!(ty, Type::Named(_))
+    fn decode_map_from_bytes(
+        &mut self,
+        target: &str,
+        key_ty: &Type,
+        val_ty: &Type,
+        indent: usize,
+        optional: bool,
+        parent_type: &str,
+        length_var: &str,
+    ) {
+        let tabs = "\t".repeat(indent);
+        let key_go_type = self.go_type(key_ty);
+        let val_go_type = self.go_type(val_ty);
+
+        let key_fixed = {
+            let this = &self;
+            this.schema.fixed_size(key_ty).is_some()
+        };
+        let val_fixed = {
+            let this = &self;
+            this.schema.fixed_size(val_ty).is_some()
+        };
+
+        if key_fixed && val_fixed {
+            // Fixed-size entries: no count prefix, infer count from length
+            let key_size = match key_ty {
+                Type::Bool | Type::U8 | Type::I8 => 1,
+                Type::F32 => 4,
+                Type::F64 => 8,
+                _ => panic!("Unexpected fixed-size type"),
+            };
+            let val_size = match val_ty {
+                Type::Bool | Type::U8 | Type::I8 => 1,
+                Type::F32 => 4,
+                Type::F64 => 8,
+                _ => panic!("Unexpected fixed-size type"),
+            };
+            let entry_size = key_size + val_size;
+            writeln!(self.output, "{}count := {} / {}", tabs, length_var, entry_size).unwrap();
+            if optional {
+                writeln!(
+                    self.output,
+                    "{}m := make(map[{}]{}, count)",
+                    tabs, key_go_type, val_go_type
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    self.output,
+                    "{}{} = make(map[{}]{}, count)",
+                    tabs, target, key_go_type, val_go_type
+                )
+                .unwrap();
+            }
+            writeln!(self.output, "{}for i := uint64(0); i < count; i++ {{", tabs).unwrap();
+            writeln!(self.output, "{}var k {}", tabs, key_go_type).unwrap();
+            writeln!(self.output, "{}var v {}", tabs, val_go_type).unwrap();
+            self.decode_value_inline("k", key_ty, indent + 1, parent_type);
+            self.decode_value_inline("v", val_ty, indent + 1, parent_type);
+            if optional {
+                writeln!(self.output, "{}m[k] = v", tabs).unwrap();
+            } else {
+                writeln!(self.output, "{}{}[k] = v", tabs, target).unwrap();
+            }
+            writeln!(self.output, "{}}}", tabs).unwrap();
+            if optional {
+                writeln!(self.output, "{}{} = &m", tabs, target).unwrap();
+            }
+        } else {
+            // Variable-size entries: read count prefix, then entries
+            writeln!(self.output, "{}_ = {} // Outer BYTES length", tabs, length_var).unwrap();
+            writeln!(self.output, "{}count, err := DecodeLEB128(buf)", tabs).unwrap();
+            writeln!(self.output, "{}if err != nil {{", tabs).unwrap();
+            writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
+            writeln!(self.output, "{}}}", tabs).unwrap();
+            if optional {
+                writeln!(
+                    self.output,
+                    "{}m := make(map[{}]{}, count)",
+                    tabs, key_go_type, val_go_type
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    self.output,
+                    "{}{} = make(map[{}]{}, count)",
+                    tabs, target, key_go_type, val_go_type
+                )
+                .unwrap();
+            }
+            writeln!(self.output, "{}for i := uint64(0); i < count; i++ {{", tabs).unwrap();
+            writeln!(self.output, "{}var k {}", tabs, key_go_type).unwrap();
+            writeln!(self.output, "{}var v {}", tabs, val_go_type).unwrap();
+            self.decode_value_inline("k", key_ty, indent + 1, parent_type);
+            self.decode_value_inline("v", val_ty, indent + 1, parent_type);
+            if optional {
+                writeln!(self.output, "{}m[k] = v", tabs).unwrap();
+            } else {
+                writeln!(self.output, "{}{}[k] = v", tabs, target).unwrap();
+            }
+            writeln!(self.output, "{}}}", tabs).unwrap();
+            if optional {
+                writeln!(self.output, "{}{} = &m", tabs, target).unwrap();
+            }
+        }
+    }
+
+    fn wire_type(&self, ty: &Type) -> &'static str {
+        match self.schema.wire_type(ty) {
+            crate::schema::WireType::Fixed8 => "WireFixed8",
+            crate::schema::WireType::Varint => "WireVarint",
+            crate::schema::WireType::Fixed32 => "WireFixed32",
+            crate::schema::WireType::Fixed64 => "WireFixed64",
+            crate::schema::WireType::Bytes => "WireBytes",
+            crate::schema::WireType::Message => "WireMessage",
+            crate::schema::WireType::Union => "WireUnion",
+            crate::schema::WireType::Unit => "WireUnit",
+        }
     }
 }
 

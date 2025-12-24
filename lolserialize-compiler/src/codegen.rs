@@ -4,6 +4,17 @@ use std::fmt::Write;
 
 use crate::schema::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DerivableTrait {
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+}
+
 pub fn generate(schema: &Schema) -> String {
     let generator = CodeGenerator::new(schema);
     generator.generate()
@@ -65,49 +76,95 @@ impl<'a> CodeGenerator<'a> {
         }
     }
 
-    /// Returns the fixed encoded size of a type, or None if variable-length.
-    fn fixed_size(&self, ty: &Type) -> Option<usize> {
-        match ty {
-            Type::Bool | Type::U8 | Type::I8 => Some(1),
-            Type::F32 => Some(4),
-            Type::F64 => Some(8),
-            // Variable-length types
-            Type::U16 | Type::U32 | Type::U64 | Type::I16 | Type::I32 | Type::I64 => None,
-            Type::String | Type::Array(_) | Type::Map(_, _) => None,
-            Type::Named(name) => {
-                // Look up the named type in the schema
-                for item in &self.schema.items {
-                    match &item.node {
-                        Item::Struct(s) if &s.name.node == name => {
-                            return self.struct_fixed_size(s);
-                        }
-                        Item::Message(_) | Item::Enum(_) | Item::Union(_) => {}
-                        _ => {}
-                    }
-                }
-                None
-            }
+    /// Returns true if the item can derive the specified trait.
+    fn can_derive_item(&self, item: &Item, trait_: DerivableTrait) -> bool {
+        match item {
+            Item::Struct(i) => i.fields.iter().all(|f| self.can_derive(&f.ty.node, trait_)),
+            Item::Message(i) => i.fields.iter().all(|f| self.can_derive(&f.ty.node, trait_)),
+            Item::Union(i) => i
+                .variants
+                .iter()
+                .flat_map(|x| &x.node.ty)
+                .all(|ty| self.can_derive(ty, trait_)),
+            Item::Enum(_) => true,
         }
     }
 
-    /// Returns the fixed encoded size of a struct, or None if it has variable-length fields or optionals.
-    fn struct_fixed_size(&self, s: &Struct) -> Option<usize> {
-        // Structs with optional fields have presence bits, making them variable-length
-        if s.fields.iter().any(|f| f.node.optional) {
-            return None;
+    /// Returns true if the type can derive the specified trait.
+    fn can_derive(&self, ty: &Type, trait_: DerivableTrait) -> bool {
+        match ty {
+            Type::Bool
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64 => true,
+            Type::F32 | Type::F64 => match trait_ {
+                DerivableTrait::Eq | DerivableTrait::Hash => false,
+                _ => true,
+            },
+            Type::String => match trait_ {
+                DerivableTrait::Copy => false,
+                _ => true,
+            },
+            Type::Array(t) => match trait_ {
+                DerivableTrait::Copy => false,
+                _ => self.can_derive(t, trait_),
+            },
+            Type::Map(k, v) => match trait_ {
+                DerivableTrait::Copy => false,
+                DerivableTrait::Hash => false,
+                _ => self.can_derive(k, trait_) && self.can_derive(v, trait_),
+            },
+            Type::Named(name) => self.can_derive_item(self.schema.item(name).unwrap(), trait_),
         }
-        let mut total = 0;
-        for field in &s.fields {
-            total += self.fixed_size(&field.node.ty.node)?;
+    }
+
+    /// Generates a #[derive(...)] attribute.
+    fn gen_derive_attr(&mut self, item: &Item) {
+        let mut derivable_traits = Vec::new();
+        for trait_ in [
+            DerivableTrait::Debug,
+            DerivableTrait::Copy,
+            DerivableTrait::Clone,
+            DerivableTrait::PartialEq,
+            DerivableTrait::Eq,
+            DerivableTrait::Hash,
+            DerivableTrait::Default,
+        ] {
+            // unions generate a Default impl manually.
+            if trait_ == DerivableTrait::Default && matches!(item, Item::Union(_)) {
+                continue;
+            }
+
+            if self.can_derive_item(item, trait_) {
+                let trait_name = match trait_ {
+                    DerivableTrait::Debug => "Debug",
+                    DerivableTrait::Clone => "Clone",
+                    DerivableTrait::Copy => "Copy",
+                    DerivableTrait::PartialEq => "PartialEq",
+                    DerivableTrait::Eq => "Eq",
+                    DerivableTrait::Hash => "Hash",
+                    DerivableTrait::Default => "Default",
+                };
+                derivable_traits.push(trait_name);
+            }
         }
-        Some(total)
+
+        if !derivable_traits.is_empty() {
+            write!(self.output, "#[derive({})]", derivable_traits.join(", ")).unwrap();
+            self.output.push('\n');
+        }
     }
 
     fn gen_struct(&mut self, s: &Struct) {
         let name = &s.name.node;
 
         // Generate struct definition
-        writeln!(self.output, "#[derive(Debug, Clone, PartialEq, Default)]").unwrap();
+        self.gen_derive_attr(&Item::Struct(s.clone()));
         writeln!(
             self.output,
             "#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]"
@@ -115,9 +172,9 @@ impl<'a> CodeGenerator<'a> {
         .unwrap();
         writeln!(self.output, "pub struct {} {{", name).unwrap();
         for field in &s.fields {
-            let field_name = &field.node.name.node;
-            let field_type = self.rust_type(&field.node.ty.node);
-            if field.node.optional {
+            let field_name = &field.name.node;
+            let field_type = self.rust_type(&field.ty.node);
+            if field.optional {
                 writeln!(
                     self.output,
                     "    pub {}: ::core::option::Option<{}>,",
@@ -132,7 +189,7 @@ impl<'a> CodeGenerator<'a> {
         self.output.push('\n');
 
         // Count optional fields
-        let optional_fields: Vec<_> = s.fields.iter().filter(|f| f.node.optional).collect();
+        let optional_fields: Vec<_> = s.fields.iter().filter(|f| f.optional).collect();
         let has_optionals = !optional_fields.is_empty();
 
         // Generate Encode impl
@@ -146,15 +203,15 @@ impl<'a> CodeGenerator<'a> {
                 if i > 0 {
                     write!(self.output, ", ").unwrap();
                 }
-                write!(self.output, "self.{}.is_some()", field.node.name.node).unwrap();
+                write!(self.output, "self.{}.is_some()", field.name.node).unwrap();
             }
             writeln!(self.output, "], buf);").unwrap();
         }
 
         // Encode fields in order
         for field in &s.fields {
-            let field_name = &field.node.name.node;
-            if field.node.optional {
+            let field_name = &field.name.node;
+            if field.optional {
                 writeln!(
                     self.output,
                     "        if let Some(ref v) = self.{} {{ __rt::Encode::encode(v, buf); }}",
@@ -190,9 +247,9 @@ impl<'a> CodeGenerator<'a> {
         // Decode fields in order
         let mut opt_idx = 0;
         for field in &s.fields {
-            let field_name = &field.node.name.node;
-            let field_type = self.rust_type(&field.node.ty.node);
-            if field.node.optional {
+            let field_name = &field.name.node;
+            let field_type = self.rust_type(&field.ty.node);
+            if field.optional {
                 writeln!(
                     self.output,
                     "        let {} = if presence[{}] {{ ::core::option::Option::Some(<{}>::decode(buf)?) }} else {{ ::core::option::Option::None }};",
@@ -212,7 +269,7 @@ impl<'a> CodeGenerator<'a> {
 
         writeln!(self.output, "        ::core::result::Result::Ok(Self {{").unwrap();
         for field in &s.fields {
-            writeln!(self.output, "            {},", field.node.name.node).unwrap();
+            writeln!(self.output, "            {},", field.name.node).unwrap();
         }
         writeln!(self.output, "        }})").unwrap();
         writeln!(self.output, "    }}").unwrap();
@@ -222,7 +279,7 @@ impl<'a> CodeGenerator<'a> {
         // Generate WireType impl (structs use BYTES)
         writeln!(self.output, "impl __rt::WireType for {} {{", name).unwrap();
         writeln!(self.output, "    const WIRE_TYPE: u8 = __rt::wire::BYTES;").unwrap();
-        if let Some(size) = self.struct_fixed_size(s) {
+        if let Some(size) = self.schema.struct_fixed_size(s) {
             writeln!(
                 self.output,
                 "    const FIXED_SIZE: ::core::option::Option<usize> = ::core::option::Option::Some({});",
@@ -237,7 +294,7 @@ impl<'a> CodeGenerator<'a> {
         let name = &m.name.node;
 
         // Generate struct definition
-        writeln!(self.output, "#[derive(Debug, Clone, PartialEq, Default)]").unwrap();
+        self.gen_derive_attr(&Item::Message(m.clone()));
         writeln!(
             self.output,
             "#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]"
@@ -245,9 +302,9 @@ impl<'a> CodeGenerator<'a> {
         .unwrap();
         writeln!(self.output, "pub struct {} {{", name).unwrap();
         for field in &m.fields {
-            let field_name = &field.node.name.node;
-            let field_type = self.rust_type(&field.node.ty.node);
-            if field.node.optional {
+            let field_name = &field.name.node;
+            let field_type = self.rust_type(&field.ty.node);
+            if field.optional {
                 writeln!(
                     self.output,
                     "    pub {}: ::core::option::Option<{}>,",
@@ -267,12 +324,12 @@ impl<'a> CodeGenerator<'a> {
 
         // Encode fields in index order
         let mut fields_sorted: Vec<_> = m.fields.iter().collect();
-        fields_sorted.sort_by_key(|f| f.node.index.node);
+        fields_sorted.sort_by_key(|f| f.index.node);
 
         for field in &fields_sorted {
-            let field_name = &field.node.name.node;
-            let index = field.node.index.node;
-            if field.node.optional {
+            let field_name = &field.name.node;
+            let index = field.index.node;
+            if field.optional {
                 writeln!(
                     self.output,
                     "        if let Some(ref v) = self.{} {{ __rt::encode_field({}, v, buf); }}",
@@ -310,9 +367,9 @@ impl<'a> CodeGenerator<'a> {
         writeln!(self.output, "            match index {{").unwrap();
 
         for field in &m.fields {
-            let field_name = &field.node.name.node;
-            let index = field.node.index.node;
-            if field.node.optional {
+            let field_name = &field.name.node;
+            let index = field.index.node;
+            if field.optional {
                 writeln!(
                     self.output,
                     "                {} => result.{} = ::core::option::Option::Some(__rt::decode_field(buf)?),",
@@ -351,28 +408,22 @@ impl<'a> CodeGenerator<'a> {
         let name = &e.name.node;
 
         // Generate enum definition
-        writeln!(self.output, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
+        self.gen_derive_attr(&Item::Enum(e.clone()));
         writeln!(
             self.output,
             "#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]"
         )
         .unwrap();
         writeln!(self.output, "pub enum {} {{", name).unwrap();
-        for variant in &e.variants {
-            writeln!(self.output, "    {},", variant.node.name.node).unwrap();
+        for (i, variant) in e.variants.iter().enumerate() {
+            if i == 0 {
+                // first variant is the default.
+                writeln!(self.output, "    #[default]").unwrap();
+            }
+            writeln!(self.output, "    {},", variant.name.node).unwrap();
         }
         writeln!(self.output, "}}").unwrap();
         self.output.push('\n');
-
-        // Generate Default impl (first variant)
-        if let Some(first) = e.variants.first() {
-            writeln!(self.output, "impl ::core::default::Default for {} {{", name).unwrap();
-            writeln!(self.output, "    fn default() -> Self {{").unwrap();
-            writeln!(self.output, "        Self::{}", first.node.name.node).unwrap();
-            writeln!(self.output, "    }}").unwrap();
-            writeln!(self.output, "}}").unwrap();
-            self.output.push('\n');
-        }
 
         // Generate Encode impl
         writeln!(self.output, "impl __rt::Encode for {} {{", name).unwrap();
@@ -382,7 +433,7 @@ impl<'a> CodeGenerator<'a> {
             writeln!(
                 self.output,
                 "            Self::{} => {},",
-                variant.node.name.node, variant.node.index.node
+                variant.name.node, variant.index.node
             )
             .unwrap();
         }
@@ -405,7 +456,7 @@ impl<'a> CodeGenerator<'a> {
             writeln!(
                 self.output,
                 "            {} => ::core::result::Result::Ok(Self::{}),",
-                variant.node.index.node, variant.node.name.node
+                variant.index.node, variant.name.node
             )
             .unwrap();
         }
@@ -429,7 +480,7 @@ impl<'a> CodeGenerator<'a> {
         let name = &u.name.node;
 
         // Generate enum definition
-        writeln!(self.output, "#[derive(Debug, Clone, PartialEq)]").unwrap();
+        self.gen_derive_attr(&Item::Union(u.clone()));
         writeln!(
             self.output,
             "#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]"
@@ -442,8 +493,8 @@ impl<'a> CodeGenerator<'a> {
         .unwrap();
         writeln!(self.output, "pub enum {} {{", name).unwrap();
         for variant in &u.variants {
-            let variant_name = &variant.node.name.node;
-            if let Some(ty) = &variant.node.ty {
+            let variant_name = &variant.name.node;
+            if let Some(ty) = &variant.ty {
                 writeln!(self.output, "    {}({}),", variant_name, self.rust_type(&ty.node)).unwrap();
             } else {
                 writeln!(self.output, "    {},", variant_name).unwrap();
@@ -456,11 +507,11 @@ impl<'a> CodeGenerator<'a> {
         if let Some(first) = u.variants.first() {
             writeln!(self.output, "impl ::core::default::Default for {} {{", name).unwrap();
             writeln!(self.output, "    fn default() -> Self {{").unwrap();
-            if first.node.ty.is_some() {
+            if first.ty.is_some() {
                 writeln!(
                     self.output,
                     "        Self::{}(::core::default::Default::default())",
-                    first.node.name.node
+                    first.name.node
                 )
                 .unwrap();
             } else {
@@ -476,9 +527,9 @@ impl<'a> CodeGenerator<'a> {
         writeln!(self.output, "    fn encode(&self, buf: &mut ::std::vec::Vec<u8>) {{").unwrap();
         writeln!(self.output, "        match self {{").unwrap();
         for variant in &u.variants {
-            let variant_name = &variant.node.name.node;
-            let index = variant.node.index.node;
-            if variant.node.ty.is_some() {
+            let variant_name = &variant.name.node;
+            let index = variant.index.node;
+            if variant.ty.is_some() {
                 writeln!(
                     self.output,
                     "            Self::{}(v) => __rt::encode_field({}, v, buf),",
@@ -512,9 +563,9 @@ impl<'a> CodeGenerator<'a> {
         writeln!(self.output, "        let index = (tag >> 3) as u32;").unwrap();
         writeln!(self.output, "        match index {{").unwrap();
         for variant in &u.variants {
-            let variant_name = &variant.node.name.node;
-            let index = variant.node.index.node;
-            if variant.node.ty.is_some() {
+            let variant_name = &variant.name.node;
+            let index = variant.index.node;
+            if variant.ty.is_some() {
                 writeln!(
                     self.output,
                     "            {} => ::core::result::Result::Ok(Self::{}(__rt::decode_field(buf)?)),",
