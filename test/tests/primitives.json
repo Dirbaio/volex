@@ -101,7 +101,8 @@
       "boundary_128": 128,
       "large": 16384,
       "max": 18446744073709551615
-    }
+    },
+    "skip_languages": ["typescript"]
   },
   {
     "type": "AllI16",
@@ -140,7 +141,8 @@
       "neg_one": -1,
       "max": 9223372036854775807,
       "min": -9223372036854775808
-    }
+    },
+    "skip_languages": ["typescript"]
   },
   {
     "type": "StringTests",

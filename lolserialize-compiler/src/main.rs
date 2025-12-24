@@ -1,6 +1,7 @@
 mod checker;
 mod codegen;
 mod codegen_go;
+mod codegen_typescript;
 mod parser;
 mod schema;
 
@@ -8,11 +9,11 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: lolserialize [--lang <rust|go>] [--package <name>] <file.lol>");
+        eprintln!("Usage: lolserialize [--lang <rust|go|typescript>] [--package <name>] <file.lol>");
         eprintln!();
         eprintln!("Options:");
-        eprintln!("  --lang <rust|go>    Target language (default: rust)");
-        eprintln!("  --package <name>    Package name for Go output (default: main)");
+        eprintln!("  --lang <rust|go|typescript>    Target language (default: rust)");
+        eprintln!("  --package <name>               Package name for Go output (default: main)");
         std::process::exit(1);
     }
 
@@ -29,8 +30,8 @@ fn main() {
                     std::process::exit(1);
                 }
                 lang = &args[i + 1];
-                if lang != "rust" && lang != "go" {
-                    eprintln!("Error: language must be 'rust' or 'go'");
+                if lang != "rust" && lang != "go" && lang != "typescript" {
+                    eprintln!("Error: language must be 'rust', 'go', or 'typescript'");
                     std::process::exit(1);
                 }
                 i += 2;
@@ -81,6 +82,7 @@ fn main() {
     let code = match lang {
         "rust" => codegen::generate(&schema),
         "go" => codegen_go::generate(&schema, package),
+        "typescript" => codegen_typescript::generate(&schema),
         _ => unreachable!(),
     };
 

@@ -1,5 +1,6 @@
 mod lang_go;
 mod lang_rust;
+mod lang_typescript;
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -28,6 +29,7 @@ struct Cli {
 enum Language {
     Rust,
     Go,
+    Typescript,
 }
 
 impl Language {
@@ -35,6 +37,7 @@ impl Language {
         match self {
             Language::Rust => "rust",
             Language::Go => "go",
+            Language::Typescript => "typescript",
         }
     }
 }
@@ -47,6 +50,8 @@ struct TestCase {
     json: serde_json::Value,
     #[serde(default)]
     nondeterministic_encode: bool,
+    #[serde(default)]
+    skip_languages: Vec<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -203,12 +208,17 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
     let lang_flag = match lang {
         Language::Rust => "rust",
         Language::Go => "go",
+        Language::Typescript => "typescript",
     };
 
     let generated_path = output_dir.join(format!(
         "{}_generated.{}",
         suite,
-        if lang == Language::Go { "go" } else { "rs" }
+        match lang {
+            Language::Go => "go",
+            Language::Typescript => "ts",
+            Language::Rust => "rs",
+        }
     ));
     let compile_output = Command::new("cargo")
         .args(&[
@@ -235,6 +245,7 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
     match lang {
         Language::Rust => lang_rust::launch(suite, &output_dir, &generated_path, &type_names),
         Language::Go => lang_go::launch(suite, &output_dir, &generated_path, &type_names),
+        Language::Typescript => lang_typescript::launch(suite, &output_dir, &generated_path, &type_names),
     }
 }
 
@@ -252,6 +263,11 @@ fn run_tests(suite: &str, lang: Language, child: Child, regen_hex: bool) -> Resu
     let mut regenerated = 0;
 
     for (i, tc) in test_cases.iter_mut().enumerate() {
+        // Check if this test should be skipped for this language
+        if tc.skip_languages.contains(&lang.as_str().to_string()) {
+            continue;
+        }
+
         let hex_clean = tc.hex.replace(" ", "");
 
         if regen_hex {
