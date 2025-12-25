@@ -4,6 +4,13 @@ use ariadne::{Color, Label, Report, ReportKind, Source};
 
 use crate::schema::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Language {
+    Rust,
+    Go,
+    Typescript,
+}
+
 pub struct CheckError {
     pub message: String,
     pub labels: Vec<(Span, String, Color)>,
@@ -25,13 +32,15 @@ impl CheckError {
 
 struct Checker<'a> {
     schema: &'a Schema,
+    language: Language,
     errors: Vec<CheckError>,
 }
 
 impl<'a> Checker<'a> {
-    fn new(schema: &'a Schema) -> Self {
+    fn new(schema: &'a Schema, language: Language) -> Self {
         Self {
             schema,
+            language,
             errors: Vec::new(),
         }
     }
@@ -258,34 +267,43 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Checks if a type can be used as a map key.
+    /// Checks if a type can be used as a map key in the target language.
     ///
-    /// Map keys must be comparable and hashable across all target languages (Go, JS, Rust).
-    /// Valid key types are the lowest common denominator:
-    /// - Primitive integers: u8, u16, u32, u64, i8, i16, i32, i64
-    /// - bool
-    /// - string
-    /// - Enums (simple tag values)
-    /// - Structs without floats, arrays, maps, or optional fields
+    /// A type is allowed as a map key if:
+    /// - Primitives: bool, integers, string
+    /// - Enums
+    /// - Arrays of valid map key types (disallowed in Go and TypeScript)
+    /// - Compound types (struct, message, union) where all fields are valid map keys
+    ///   - Structs: allowed in Rust/Go, disallowed in TypeScript
+    ///   - Messages: allowed in Rust/Go, disallowed in TypeScript
+    ///   - Unions: allowed in Rust, disallowed in Go/TypeScript
     ///
-    /// Invalid key types:
-    /// - f32, f64 (not Eq+Hash in Rust, not comparable in Go)
-    /// - Arrays, Maps (not comparable in Go)
-    /// - Messages, Unions (not comparable)
-    /// - Structs with floats, optional fields, or complex nested types
+    /// Always disallowed:
+    /// - Floats (not Eq+Hash in Rust)
+    /// - Maps (not comparable in any language)
     fn check_map_key_type(&mut self, key_ty: &Spanned<Type>) {
-        if !self.is_valid_map_key(&key_ty.node) {
-            let reason = self.get_invalid_key_reason(&key_ty.node);
-            self.errors
-                .push(CheckError::new(format!("invalid map key type: {}", reason)).label(
-                    key_ty.span.clone(),
-                    "cannot be used as map key",
-                    Color::Red,
-                ));
+        let mut error_chain = Vec::new();
+        if let Some(reason) = self.validate_map_key_type(&key_ty.node, key_ty.span.clone(), &mut error_chain) {
+            let mut err = CheckError::new(format!("invalid map key type: {}", reason));
+
+            // Add labels showing the chain of why this type is invalid
+            for (span, msg, color) in error_chain {
+                err = err.label(span, msg, color);
+            }
+
+            self.errors.push(err);
         }
     }
 
-    fn is_valid_map_key(&self, ty: &Type) -> bool {
+    /// Validates if a type can be used as a map key in the target language.
+    /// Returns Some(reason) if invalid, None if valid.
+    /// Populates error_chain with spans showing why the type is invalid.
+    fn validate_map_key_type(
+        &self,
+        ty: &Type,
+        span: Span,
+        error_chain: &mut Vec<(Span, String, Color)>,
+    ) -> Option<String> {
         match ty {
             // Valid primitive types
             Type::Bool
@@ -297,87 +315,149 @@ impl<'a> Checker<'a> {
             | Type::I16
             | Type::I32
             | Type::I64
-            | Type::String => true,
+            | Type::String => None,
 
-            // Floats are not valid (not Eq+Hash in Rust, not comparable in Go)
-            Type::F32 | Type::F64 => false,
+            // Floats are never valid (not Eq+Hash in Rust)
+            Type::F32 | Type::F64 => {
+                error_chain.push((span, "floating-point type used here".to_string(), Color::Red));
+                Some("floats cannot be used as map keys".to_string())
+            }
 
-            // Arrays and maps are not valid (not comparable in Go)
-            Type::Array(_) | Type::Map(_, _) => false,
+            // Maps are never valid
+            Type::Map(_, _) => {
+                error_chain.push((span, "map type used here".to_string(), Color::Red));
+                Some("maps cannot be used as map keys".to_string())
+            }
+
+            // Arrays: valid in Rust, invalid in Go and TypeScript
+            Type::Array(inner) => {
+                // Arrays are not comparable in Go or TypeScript
+                match self.language {
+                    Language::Rust => {}
+                    Language::Go => {
+                        error_chain.push((span, "array type used here".to_string(), Color::Red));
+                        return Some("arrays cannot be used as map keys in Go".to_string());
+                    }
+                    Language::Typescript => {
+                        error_chain.push((span, "array type used here".to_string(), Color::Red));
+                        return Some("arrays cannot be used as map keys in TypeScript".to_string());
+                    }
+                }
+
+                // First check if the inner type is valid
+                if let Some(reason) = self.validate_map_key_type(&inner.node, inner.span.clone(), error_chain) {
+                    error_chain.push((span, "array of invalid type used here".to_string(), Color::Red));
+                    return Some(reason);
+                }
+                None
+            }
 
             // Check named types
             Type::Named(name) => {
-                if let Some(item) = self.schema.item(name.as_str()) {
-                    match &item.node {
-                        // Enums are valid (simple comparable values)
-                        Item::Enum(_) => true,
-
-                        // Structs are valid only if all fields are valid map keys
-                        // and there are no optional fields
-                        Item::Struct(s) => self.is_struct_valid_map_key(s),
-
-                        // Messages and unions are not valid (not comparable)
-                        Item::Message(_) | Item::Union(_) => false,
-                    }
-                } else {
+                let Some(item) = self.schema.item(name.as_str()) else {
                     // Undefined type - will be caught by check_type
-                    true
+                    return None;
+                };
+
+                match &item.node {
+                    // Enums are always valid
+                    Item::Enum(_) => None,
+
+                    // Structs: valid in Rust/Go, invalid in TypeScript
+                    Item::Struct(s) => self.validate_struct_as_map_key(s, name, span, error_chain),
+
+                    // Messages: valid in Rust/Go, invalid in TypeScript
+                    Item::Message(m) => self.validate_message_as_map_key(m, name, span, error_chain),
+
+                    // Unions: valid in Rust, invalid in Go/TypeScript
+                    Item::Union(u) => self.validate_union_as_map_key(u, name, span, error_chain),
                 }
             }
         }
     }
 
-    fn is_struct_valid_map_key(&self, s: &Struct) -> bool {
-        // Structs with optional fields are not valid (presence bits make them not comparable)
-        if s.fields.iter().any(|f| f.optional) {
-            return false;
+    fn validate_struct_as_map_key(
+        &self,
+        s: &Struct,
+        name: &str,
+        span: Span,
+        error_chain: &mut Vec<(Span, String, Color)>,
+    ) -> Option<String> {
+        // Structs are not comparable in TypeScript
+        match self.language {
+            Language::Rust | Language::Go => {}
+            Language::Typescript => {
+                error_chain.push((span, format!("struct '{}' used here", name), Color::Red));
+                return Some("structs cannot be used as map keys in TypeScript".to_string());
+            }
         }
 
-        // All fields must be valid map key types
-        s.fields.iter().all(|f| self.is_valid_map_key(&f.ty.node))
+        // Check all fields recursively
+        for field in &s.fields {
+            if let Some(reason) = self.validate_map_key_type(&field.ty.node, field.ty.span.clone(), error_chain) {
+                error_chain.push((span, format!("struct '{}' contains invalid field", name), Color::Red));
+                return Some(reason);
+            }
+        }
+        None
     }
 
-    fn get_invalid_key_reason(&self, ty: &Type) -> String {
-        match ty {
-            Type::F32 | Type::F64 => {
-                "floating-point types cannot be used as map keys (not Eq+Hash in Rust, not comparable in Go)"
-                    .to_string()
+    fn validate_message_as_map_key(
+        &self,
+        m: &Message,
+        name: &str,
+        span: Span,
+        error_chain: &mut Vec<(Span, String, Color)>,
+    ) -> Option<String> {
+        // Messages are not comparable in TypeScript
+        match self.language {
+            Language::Rust | Language::Go => {}
+            Language::Typescript => {
+                error_chain.push((span, format!("message '{}' used here", name), Color::Red));
+                return Some("messages cannot be used as map keys in TypeScript".to_string());
             }
-            Type::Array(_) => "arrays cannot be used as map keys (not comparable in Go)".to_string(),
-            Type::Map(_, _) => "maps cannot be used as map keys (not comparable in Go)".to_string(),
-            Type::Named(name) => {
-                if let Some(item) = self.schema.item(name.as_str()) {
-                    match &item.node {
-                        Item::Message(_) => {
-                            format!("messages cannot be used as map keys (not comparable)")
-                        }
-                        Item::Union(_) => {
-                            format!("unions cannot be used as map keys (not comparable)")
-                        }
-                        Item::Struct(s) => {
-                            if s.fields.iter().any(|f| f.optional) {
-                                format!("struct '{}' has optional fields (not comparable)", name)
-                            } else {
-                                // Find the problematic field
-                                for field in &s.fields {
-                                    if !self.is_valid_map_key(&field.ty.node) {
-                                        return format!(
-                                            "struct '{}' has field '{}' of invalid type for map keys",
-                                            name, field.name.node
-                                        );
-                                    }
-                                }
-                                format!("struct '{}' cannot be used as map key", name)
-                            }
-                        }
-                        _ => format!("type '{}' cannot be used as map key", name),
-                    }
-                } else {
-                    format!("type '{}' cannot be used as map key", name)
+        }
+
+        // Check all fields recursively
+        for field in &m.fields {
+            if let Some(reason) = self.validate_map_key_type(&field.ty.node, field.ty.span.clone(), error_chain) {
+                error_chain.push((span, format!("message '{}' contains invalid field", name), Color::Red));
+                return Some(reason);
+            }
+        }
+        None
+    }
+
+    fn validate_union_as_map_key(
+        &self,
+        u: &Union,
+        name: &str,
+        span: Span,
+        error_chain: &mut Vec<(Span, String, Color)>,
+    ) -> Option<String> {
+        // Unions are only comparable in Rust
+        match self.language {
+            Language::Rust => {}
+            Language::Go => {
+                error_chain.push((span, format!("union '{}' used here", name), Color::Red));
+                return Some("unions cannot be used as map keys in Go".to_string());
+            }
+            Language::Typescript => {
+                error_chain.push((span, format!("union '{}' used here", name), Color::Red));
+                return Some("unions cannot be used as map keys in TypeScript".to_string());
+            }
+        }
+
+        // Check all variants recursively
+        for variant in &u.variants {
+            if let Some(ty) = &variant.ty {
+                if let Some(reason) = self.validate_map_key_type(&ty.node, ty.span.clone(), error_chain) {
+                    error_chain.push((span, format!("union '{}' contains invalid variant", name), Color::Red));
+                    return Some(reason);
                 }
             }
-            _ => "this type cannot be used as a map key".to_string(),
         }
+        None
     }
 }
 
@@ -390,8 +470,8 @@ fn item_name_span(item: &Spanned<Item>) -> Span {
     }
 }
 
-pub fn check(schema: &Schema) -> Vec<CheckError> {
-    Checker::new(schema).check()
+pub fn check(schema: &Schema, language: Language) -> Vec<CheckError> {
+    Checker::new(schema, language).check()
 }
 
 pub fn print_errors(filename: &str, src: &str, errors: Vec<CheckError>) {

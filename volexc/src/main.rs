@@ -65,7 +65,14 @@ fn main() {
         }
     };
 
-    let errors = checker::check(&schema);
+    // Convert CLI language to checker language
+    let checker_lang = match cli.lang {
+        Language::Rust => checker::Language::Rust,
+        Language::Go => checker::Language::Go,
+        Language::Typescript => checker::Language::Typescript,
+    };
+
+    let errors = checker::check(&schema, checker_lang);
     if !errors.is_empty() {
         checker::print_errors(input_name, &src, errors);
         std::process::exit(1);
