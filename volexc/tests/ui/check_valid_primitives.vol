@@ -1,0 +1,16 @@
+// pass
+// Valid: all primitive types
+struct Foo {
+    a: bool
+    b: u8
+    c: u16
+    d: u32
+    e: u64
+    f: i8
+    g: i16
+    h: i32
+    i: i64
+    j: f32
+    k: f64
+    l: string
+}

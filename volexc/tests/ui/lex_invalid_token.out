@@ -1,0 +1,9 @@
+Error: found "@" but expected one of "0", "?", ")", end of input, "/", "}", "=", "[", "]", "(", ":", "{"
+   ╭─[lex_invalid_token.vol:3:5]
+   │
+ 3 │     @field: u32
+   │     ┬  
+   │     ╰── Unexpected '@'
+   │ 
+   │ Note: Expected one of: '0', '?', ')', '/', '}', '=', '[', ']', '(', ':', '{'
+───╯

@@ -1,0 +1,4 @@
+// Missing field index in message
+message Foo {
+    bar: u32 =
+}

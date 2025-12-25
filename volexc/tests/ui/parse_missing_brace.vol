@@ -1,0 +1,3 @@
+// Missing closing brace
+struct Foo {
+    bar: u32

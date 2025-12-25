@@ -1,0 +1,4 @@
+// Integer literal exceeds u32::MAX
+enum Foo {
+    A = 4294967296
+}

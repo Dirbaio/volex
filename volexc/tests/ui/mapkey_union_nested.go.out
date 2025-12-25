@@ -1,0 +1,7 @@
+Error: invalid map key type: unions cannot be used as map keys in Go
+    ╭─[mapkey_union_nested.vol:16:12]
+    │
+ 16 │     data: {Shape:string}
+    │            ──┬──  
+    │              ╰──── union 'Shape' used here
+────╯

@@ -1,0 +1,5 @@
+// Duplicate field in struct
+struct Foo {
+    bar: u32
+    bar: u64
+}

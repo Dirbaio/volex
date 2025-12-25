@@ -1,0 +1,4 @@
+// Invalid token: @ symbol
+struct Foo {
+    @field: u32
+}

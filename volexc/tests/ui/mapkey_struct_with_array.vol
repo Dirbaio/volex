@@ -1,0 +1,12 @@
+// rust:pass
+// go:fail
+// typescript:fail
+// Struct with array field: valid in Rust only (arrays not valid keys in Go/TS)
+struct Key {
+    id: u32
+    tags: [u32]
+}
+
+struct Test {
+    data: {Key:string}
+}

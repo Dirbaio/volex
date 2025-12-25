@@ -1,0 +1,5 @@
+// Duplicate variant in union
+union Foo {
+    Bar(u32) = 1
+    Bar(u64) = 2
+}

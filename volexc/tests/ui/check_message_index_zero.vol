@@ -1,0 +1,4 @@
+// Field index 0 is reserved in message
+message Foo {
+    bar: u32 = 0
+}

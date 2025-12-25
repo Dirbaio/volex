@@ -1,0 +1,4 @@
+// Missing opening paren in union variant
+union Foo {
+    Bar u32) = 1
+}

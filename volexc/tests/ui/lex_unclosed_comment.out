@@ -1,0 +1,9 @@
+Error: found end of input but expected "*"
+   ╭─[lex_unclosed_comment.vol:5:3]
+   │
+ 5 │ }
+   │   │ 
+   │   ╰─ Unexpected end of input
+   │ 
+   │ Note: Expected one of: '*'
+───╯

@@ -1,0 +1,16 @@
+// rust:pass
+// go:pass
+// typescript:pass
+// All primitive types (except floats) are valid map keys in all languages
+struct Test {
+    a: {bool:string}
+    b: {u8:string}
+    c: {u16:string}
+    d: {u32:string}
+    e: {u64:string}
+    f: {i8:string}
+    g: {i16:string}
+    h: {i32:string}
+    i: {i64:string}
+    j: {string:string}
+}

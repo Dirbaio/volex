@@ -1,0 +1,7 @@
+// rust:pass
+// go:fail
+// typescript:fail
+// Nested arrays as map keys: valid in Rust, invalid in Go/TS
+struct Test {
+    data: {[[u32]]:string}
+}

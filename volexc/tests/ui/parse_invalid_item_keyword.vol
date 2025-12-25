@@ -1,0 +1,3 @@
+// Invalid top-level keyword
+function Foo {
+}

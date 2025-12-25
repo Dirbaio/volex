@@ -1,0 +1,7 @@
+Error: found end of input but expected "}"
+   ╭─[parse_unclosed_map.vol:4:3]
+   │
+   │ 
+   │ 
+   │ Note: Expected one of: '}'
+───╯

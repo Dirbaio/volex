@@ -1,0 +1,7 @@
+Error: found "}"
+   ╭─[parse_missing_field_index.vol:4:1]
+   │
+ 4 │ }
+   │ ┬  
+   │ ╰── Unexpected '}'
+───╯

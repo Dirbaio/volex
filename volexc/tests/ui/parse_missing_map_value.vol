@@ -1,0 +1,4 @@
+// Missing value type in map
+struct Foo {
+    bar: {string:}
+}

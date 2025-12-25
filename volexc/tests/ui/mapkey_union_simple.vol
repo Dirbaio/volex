@@ -1,0 +1,12 @@
+// rust:pass
+// go:fail
+// typescript:fail
+// Union with primitives: valid in Rust only
+union Value {
+    Int(u32) = 1
+    String(string) = 2
+}
+
+struct Test {
+    data: {Value:string}
+}

@@ -1,0 +1,7 @@
+Error: invalid map key type: structs cannot be used as map keys in TypeScript
+    ╭─[mapkey_struct_with_array.vol:11:12]
+    │
+ 11 │     data: {Key:string}
+    │            ─┬─  
+    │             ╰─── struct 'Key' used here
+────╯

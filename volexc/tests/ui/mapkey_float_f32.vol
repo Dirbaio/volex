@@ -1,0 +1,7 @@
+// rust:fail
+// go:fail
+// typescript:fail
+// f32 is invalid as map key in all languages (not Eq+Hash in Rust)
+struct Test {
+    data: {f32:string}
+}

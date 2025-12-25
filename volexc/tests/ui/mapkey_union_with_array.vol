@@ -1,0 +1,12 @@
+// rust:pass
+// go:fail
+// typescript:fail
+// Union with array variant: valid in Rust only
+union Value {
+    Single(u32) = 1
+    Multiple([u32]) = 2
+}
+
+struct Test {
+    data: {Value:string}
+}

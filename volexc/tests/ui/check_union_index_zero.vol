@@ -1,0 +1,4 @@
+// Variant index 0 is reserved in union
+union Foo {
+    Bar(u32) = 0
+}

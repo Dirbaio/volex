@@ -1,0 +1,4 @@
+// Unclosed map type
+struct Foo {
+    bar: {string:u32
+}

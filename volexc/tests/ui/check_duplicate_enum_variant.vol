@@ -1,0 +1,5 @@
+// Duplicate variant in enum
+enum Foo {
+    Bar = 1
+    Bar = 2
+}

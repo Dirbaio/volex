@@ -1,0 +1,7 @@
+Error: invalid map key type: structs cannot be used as map keys in TypeScript
+    ╭─[mapkey_struct_with_enum.vol:16:12]
+    │
+ 16 │     data: {Key:string}
+    │            ─┬─  
+    │             ╰─── struct 'Key' used here
+────╯

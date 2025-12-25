@@ -1,0 +1,4 @@
+// Unclosed bracket in array type
+struct Foo {
+    bar: [u32
+}

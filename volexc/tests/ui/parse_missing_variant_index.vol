@@ -1,0 +1,4 @@
+// Missing variant index in union
+union Foo {
+    Bar(u32) =
+}

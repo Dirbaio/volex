@@ -1,0 +1,12 @@
+// rust:pass
+// go:pass
+// typescript:fail
+// Struct with only primitives: valid in Rust/Go, invalid in TS
+struct Key {
+    x: u32
+    y: u64
+}
+
+struct Test {
+    data: {Key:string}
+}

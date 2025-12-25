@@ -1,0 +1,5 @@
+// Duplicate field in message
+message Foo {
+    bar: u32 = 1
+    bar: u64 = 2
+}

@@ -1,0 +1,8 @@
+// Duplicate union definition
+union Result {
+    Ok(u32) = 1
+}
+
+union Result {
+    Err(string) = 1
+}

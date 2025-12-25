@@ -1,0 +1,8 @@
+// Duplicate message definition
+message Bar {
+    x: u32 = 1
+}
+
+message Bar {
+    y: u64 = 1
+}

@@ -1,0 +1,5 @@
+// Duplicate variant index in union
+union Foo {
+    Bar(u32) = 1
+    Baz(u64) = 1
+}

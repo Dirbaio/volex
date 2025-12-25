@@ -1,0 +1,4 @@
+// Undefined type reference in struct
+struct Foo {
+    bar: UndefinedType
+}

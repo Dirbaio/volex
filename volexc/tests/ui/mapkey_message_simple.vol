@@ -1,0 +1,12 @@
+// rust:pass
+// go:pass
+// typescript:fail
+// Message with only primitives: valid in Rust/Go, invalid in TS
+message Key {
+    x: u32 = 1
+    y: u64 = 2
+}
+
+struct Test {
+    data: {Key:string}
+}

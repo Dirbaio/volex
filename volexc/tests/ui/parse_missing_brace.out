@@ -1,0 +1,7 @@
+Error: found end of input but expected "}"
+   ╭─[parse_missing_brace.vol:3:14]
+   │
+   │ 
+   │ 
+   │ Note: Expected one of: '}'
+───╯

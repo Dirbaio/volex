@@ -1,0 +1,8 @@
+// Duplicate struct definition
+struct Foo {
+    x: u32
+}
+
+struct Foo {
+    y: u64
+}

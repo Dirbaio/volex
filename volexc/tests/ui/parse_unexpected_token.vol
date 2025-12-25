@@ -1,0 +1,4 @@
+// Unexpected token after type name
+struct Foo {
+    bar: u32 extra
+}

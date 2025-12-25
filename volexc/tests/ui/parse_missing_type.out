@@ -1,0 +1,9 @@
+Error: found "}" but expected one of "{", "i32", "i8", "u8", "u32", "f64", "f32", "u16", "string", "i64", "bool", "u64", "[", "i16"
+   ╭─[parse_missing_type.vol:4:1]
+   │
+ 4 │ }
+   │ ┬  
+   │ ╰── Unexpected '}'
+   │ 
+   │ Note: Expected one of: '{', 'i32', 'i8', 'u8', 'u32', 'f64', 'f32', 'u16', 'string', 'i64', 'bool', 'u64', '[', 'i16'
+───╯

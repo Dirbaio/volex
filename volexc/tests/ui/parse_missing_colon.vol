@@ -1,0 +1,4 @@
+// Missing colon in struct field
+struct Foo {
+    bar u32
+}

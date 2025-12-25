@@ -1,0 +1,5 @@
+// Duplicate variant index in enum
+enum Foo {
+    Bar = 1
+    Baz = 1
+}

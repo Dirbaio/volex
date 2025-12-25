@@ -1,0 +1,4 @@
+// Missing equals in enum variant
+enum Foo {
+    A 1
+}

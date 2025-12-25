@@ -1,0 +1,11 @@
+Error: duplicate definition of `Result`
+   ╭─[check_duplicate_union.vol:2:7]
+   │
+ 2 │ union Result {
+   │       ───┬──  
+   │          ╰──── first defined here
+   │ 
+ 6 │ union Result {
+   │       ───┬──  
+   │          ╰──── redefined here
+───╯

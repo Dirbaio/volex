@@ -1,0 +1,13 @@
+// rust:pass
+// go:pass
+// typescript:pass
+// Enums are valid map keys in all languages
+enum Color {
+    Red = 1
+    Green = 2
+    Blue = 3
+}
+
+struct Test {
+    colors: {Color:string}
+}

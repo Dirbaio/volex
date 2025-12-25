@@ -1,0 +1,10 @@
+Error: duplicate field `bar` in message `Foo`
+   ╭─[check_duplicate_message_field.vol:3:5]
+   │
+ 3 │     bar: u32 = 1
+   │     ─┬─  
+   │      ╰─── first defined here
+ 4 │     bar: u64 = 2
+   │     ─┬─  
+   │      ╰─── redefined here
+───╯
