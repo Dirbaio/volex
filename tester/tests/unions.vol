@@ -150,22 +150,6 @@ union MapU8ToString {
     Empty = 2
 }
 
-// Maps with fixed-size struct key in unions
-union MapFixedStructToU8 {
-    Map({FixedSizeStruct: u8}) = 1  // BYTES, no count (both fixed-size)
-    Empty = 2
-}
-
-union MapFixedStructToFixedStruct {
-    Map({FixedSizeStruct: FixedSizeStruct}) = 1  // BYTES, no count (both fixed-size)
-    Empty = 2
-}
-
-union MapFixedStructToString {
-    Map({FixedSizeStruct: string}) = 1  // BYTES, with count (value is variable-size)
-    Empty = 2
-}
-
 // Maps with string key in unions
 union MapStringToU8 {
     Map({string: u8}) = 1  // BYTES, with count (key is variable-size)

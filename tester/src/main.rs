@@ -190,7 +190,6 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
     let output_dir = tester_dir.join("temp");
     fs::create_dir_all(&output_dir).map_err(|e| format!("create dir: {}", e))?;
 
-    println!("cwd: {:?}", std::env::current_dir());
     let schema_path = tester_dir.join(format!("tests/{}.vol", suite));
     if !schema_path.exists() {
         return Err(format!("Schema not found: {}", schema_path.display()));

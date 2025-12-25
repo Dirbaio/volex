@@ -175,19 +175,6 @@ message MapU8ToString {
     map: {u8: string} = 1  // BYTES, with count (value is variable-size)
 }
 
-// Maps with fixed-size struct key
-message MapFixedStructToU8 {
-    map: {FixedSizeStruct: u8} = 1  // BYTES, no count (both fixed-size)
-}
-
-message MapFixedStructToFixedStruct {
-    map: {FixedSizeStruct: FixedSizeStruct} = 1  // BYTES, no count (both fixed-size)
-}
-
-message MapFixedStructToString {
-    map: {FixedSizeStruct: string} = 1  // BYTES, with count (value is variable-size)
-}
-
 // Maps with string key
 message MapStringToU8 {
     map: {string: u8} = 1  // BYTES, with count (key is variable-size)

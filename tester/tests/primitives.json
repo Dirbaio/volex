@@ -273,5 +273,37 @@
         "answer": 42
       }
     }
+  },
+  {
+    "type": "MapEnumU32",
+    "description": "map enum:u32: empty",
+    "hex": "00",
+    "json": {
+      "values": {}
+    }
+  },
+  {
+    "type": "MapEnumU32",
+    "description": "map enum:u32: single entry",
+    "hex": "01000a",
+    "json": {
+      "values": {
+        "Alpha": 10
+      }
+    }
+  },
+  {
+    "type": "MapEnumU32",
+    "description": "map enum:u32: multiple entries",
+    "hex": "03006402ac0201c801",
+    "json": {
+      "values": {
+        "Alpha": 100,
+        "Beta": 200,
+        "Gamma": 300
+      }
+    },
+    "nondeterministic_encode": true,
+    "skip_languages": []
   }
 ]

@@ -131,3 +131,15 @@ struct MapU8U8 {
 struct MapStringU32 {
     values: {string: u32}
 }
+
+// Enum for map key tests
+enum MapKeyEnum {
+    Alpha = 0
+    Beta = 1
+    Gamma = 2
+}
+
+// Map with enum as key
+struct MapEnumU32 {
+    values: {MapKeyEnum: u32}
+}
