@@ -492,45 +492,6 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         }
     }
 
-    fn decode_value_inline_with_buf(&mut self, ty: &Type, buf_name: &str) {
-        match ty {
-            Type::Bool => write!(self.output, "__rt.decodeBool({})", buf_name).unwrap(),
-            Type::U8 => write!(self.output, "__rt.decodeU8({})", buf_name).unwrap(),
-            Type::U16 => write!(self.output, "__rt.decodeU16({})", buf_name).unwrap(),
-            Type::U32 => write!(self.output, "__rt.decodeU32({})", buf_name).unwrap(),
-            Type::U64 => write!(self.output, "__rt.decodeU64({})", buf_name).unwrap(),
-            Type::I8 => write!(self.output, "__rt.decodeI8({})", buf_name).unwrap(),
-            Type::I16 => write!(self.output, "__rt.decodeI16({})", buf_name).unwrap(),
-            Type::I32 => write!(self.output, "__rt.decodeI32({})", buf_name).unwrap(),
-            Type::I64 => write!(self.output, "__rt.decodeI64({})", buf_name).unwrap(),
-            Type::F32 => write!(self.output, "__rt.decodeF32({})", buf_name).unwrap(),
-            Type::F64 => write!(self.output, "__rt.decodeF64({})", buf_name).unwrap(),
-            Type::String => write!(self.output, "__rt.decodeString({})", buf_name).unwrap(),
-            Type::Array(inner) => {
-                write!(self.output, "(() => {{ const count = Number(__rt.decodeVarint({})); const arr: {}[] = []; for (let i = 0; i < count; i++) {{ arr.push(", buf_name, self.ts_type(&inner.node)).unwrap();
-                self.decode_value_inline_with_buf(&inner.node, buf_name);
-                write!(self.output, "); }} return arr; }})()").unwrap();
-            }
-            Type::Map(k, v) => {
-                write!(
-                    self.output,
-                    "(() => {{ const count = Number(__rt.decodeVarint({})); const map = new Map<{}, {}>(); for (let i = 0; i < count; i++) {{ const k = ",
-                    buf_name,
-                    self.ts_type(&k.node),
-                    self.ts_type(&v.node)
-                )
-                .unwrap();
-                self.decode_value_inline_with_buf(&k.node, buf_name);
-                write!(self.output, "; const v = ").unwrap();
-                self.decode_value_inline_with_buf(&v.node, buf_name);
-                write!(self.output, "; map.set(k, v); }} return map; }})()").unwrap();
-            }
-            Type::Named(name) => {
-                write!(self.output, "decode{}({})", name, buf_name).unwrap();
-            }
-        }
-    }
-
     fn encode_tagged_field(&mut self, index: u32, value: &str, ty: &Type, indent: usize) {
         let spaces = "  ".repeat(indent);
         let wire_type = self.wire_type(ty);
