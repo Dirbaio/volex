@@ -6,7 +6,11 @@ fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = Simple<char>> {
     // Integer must not be followed by an alphanumeric character
     let int = text::int(10)
         .then_ignore(filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_').not().rewind())
-        .map(|s: String| Token::Int(s.parse().unwrap()));
+        .try_map(|s: String, span| {
+            s.parse::<u32>()
+                .map(Token::Int)
+                .map_err(|_| Simple::custom(span, format!("integer literal '{}' is too large (must fit in u32)", s)))
+        });
 
     let ident = text::ident().map(|s: String| match s.as_str() {
         "struct" => Token::Struct,
