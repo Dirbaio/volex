@@ -2,6 +2,8 @@
 
 set -e
 
+RUSTFLAGS=-Dwarnings cargo build
+
 cargo run --bin tester -- --lang rust
 cargo run --bin tester -- --lang go
 cargo run --bin tester -- --lang typescript
