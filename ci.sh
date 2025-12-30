@@ -2,9 +2,9 @@
 
 set -e
 
-RUSTFLAGS=-Dwarnings cargo build
+RUSTFLAGS=-Dwarnings cargo build -p volexc
 
-cargo test
+cargo test -p volexc
 
 cargo run --bin tester -- --lang rust
 cargo run --bin tester -- --lang go

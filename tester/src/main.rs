@@ -225,19 +225,27 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
         }
     ));
 
+    let mut compile_args = vec![
+        "run",
+        "--bin",
+        "volexc",
+        "--",
+        "--input",
+        schema_path.to_str().unwrap(),
+        "--output",
+        "-",
+        "--lang",
+        lang_flag,
+    ];
+
+    // For Rust, enable serde derives
+    if lang == Language::Rust {
+        compile_args.push("--serde");
+        compile_args.push("always");
+    }
+
     let compile_output = Command::new("cargo")
-        .args(&[
-            "run",
-            "--bin",
-            "volexc",
-            "--",
-            "--input",
-            schema_path.to_str().unwrap(),
-            "--output",
-            "-",
-            "--lang",
-            lang_flag,
-        ])
+        .args(&compile_args)
         .output()
         .map_err(|e| format!("failed to run compiler: {}", e))?;
 

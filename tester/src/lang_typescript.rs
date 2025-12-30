@@ -1,35 +1,42 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
-
-fn get_tester_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
 
 pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names: &[String]) -> Result<Child, String> {
     let test_dir = output_dir.join(format!("{}_testbin_typescript", suite));
     fs::create_dir_all(&test_dir).map_err(|e| format!("create test dir: {}", e))?;
 
-    // Create package.json
+    // Create package.json with volex dependency pointing to runtime-typescript
     let package_json = r#"{
   "name": "volex-testbin",
   "version": "1.0.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "volex": "file:../../../runtime-typescript"
+  }
 }
 "#;
     fs::write(test_dir.join("package.json"), package_json).map_err(|e| format!("write package.json: {}", e))?;
 
+    // Install dependencies if needed
+    if !test_dir.join("node_modules").exists() {
+        let install_output = Command::new("npm")
+            .args(["install"])
+            .current_dir(&test_dir)
+            .output()
+            .map_err(|e| format!("npm install: {}", e))?;
+
+        if !install_output.status.success() {
+            return Err(format!(
+                "npm install failed:\n{}",
+                String::from_utf8_lossy(&install_output.stderr)
+            ));
+        }
+    }
+
     // Copy generated TypeScript code
     let generated_code = fs::read_to_string(generated_path).map_err(|e| format!("read generated code: {}", e))?;
     fs::write(test_dir.join("generated.ts"), generated_code).map_err(|e| format!("write generated.ts: {}", e))?;
-
-    // Copy runtime library
-    let runtime_src = get_tester_dir()
-        .parent()
-        .ok_or("failed to get parent dir")?
-        .join("runtime-typescript/volex.ts");
-    let runtime_code = fs::read_to_string(&runtime_src).map_err(|e| format!("read runtime: {}", e))?;
-    fs::write(test_dir.join("volex.ts"), runtime_code).map_err(|e| format!("write runtime: {}", e))?;
 
     // Generate encode/decode switch cases
     let encode_cases = type_names
@@ -64,7 +71,7 @@ pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names:
 
     // Create main.ts with test binary protocol implementation
     let main_ts = format!(
-        r#"import * as runtime from "./volex.js";
+        r#"import * as runtime from "volex";
 import {{
 {}
 }} from "./generated.js";

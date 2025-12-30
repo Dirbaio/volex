@@ -36,9 +36,6 @@ volex = {{ path = "{}" }}
 serde = {{ version = "1.0", features = ["derive"] }}
 serde_json = "1.0"
 hex = "0.4"
-
-[features]
-serde = []
 "#,
         suite,
         suite,
@@ -47,8 +44,7 @@ serde = []
     fs::write(test_crate_dir.join("Cargo.toml"), cargo_toml).map_err(|e| format!("write Cargo.toml: {}", e))?;
 
     // Create main.rs
-    let relative_gen_path = pathdiff::diff_paths(generated_path, test_crate_dir.join("src"))
-        .unwrap_or_else(|| PathBuf::from("../../basic_generated.rs"));
+    let relative_gen_path = pathdiff::diff_paths(generated_path, test_crate_dir.join("src")).unwrap();
 
     // Generate use statements, handling "Result" naming conflict
     let use_types = type_names
@@ -101,9 +97,8 @@ serde = []
 
     let main_rs = format!(
         r#"
-mod generated {{
-    include!("{}");
-}}
+#[path = "{}"]
+mod generated;
 
 use generated::{{{}}};{}
 use volex::{{Encode, Decode}};
@@ -206,7 +201,7 @@ fn main() {{
     // Launch with cargo run (builds if needed, then runs)
     println!("  Launching with cargo run...");
     let child = Command::new("cargo")
-        .args(&["run", "--release", "--features", "serde", "--quiet"])
+        .args(&["run", "--release", "--quiet"])
         .current_dir(&test_crate_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -28,6 +28,10 @@ struct Cli {
     /// Package name for Go output
     #[arg(long, default_value = "main")]
     go_package: String,
+
+    /// Serde derive mode for Rust output
+    #[arg(long, value_enum, default_value = "never")]
+    serde: codegen_rust::SerdeMode,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -79,7 +83,7 @@ fn main() {
     }
 
     let code = match cli.lang {
-        Language::Rust => codegen_rust::generate(&schema),
+        Language::Rust => codegen_rust::generate(&schema, cli.serde),
         Language::Go => codegen_go::generate(&schema, &cli.go_package),
         Language::Typescript => codegen_typescript::generate(&schema),
     };
