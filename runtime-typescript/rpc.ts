@@ -73,7 +73,7 @@ export class TcpTransport implements Transport {
     // Disable Nagle's algorithm for lower latency
     socket.setNoDelay(true);
 
-    socket.on('data', (data: Buffer) => {
+    socket.on('data', (data: Uint8Array) => {
       // Append to buffer
       const newBuf = new Uint8Array(this.buffer.length + data.length);
       newBuf.set(this.buffer);
