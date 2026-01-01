@@ -1491,19 +1491,24 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "}}\n").unwrap();
 
-        // Generate Start method
+        // Generate Run method
         writeln!(
             self.output,
-            "// Start starts the client's receive loop. Must be called before making RPC calls."
+            "// Run runs the client's receive loop until the context is canceled or the transport fails."
         )
         .unwrap();
         writeln!(
             self.output,
-            "func (c *{}Client) Start(ctx context.Context) {{",
+            "// This method blocks and must be called before making any RPC calls."
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "func (c *{}Client) Run(ctx context.Context) error {{",
             service_name
         )
         .unwrap();
-        writeln!(self.output, "\tc.base.Start(ctx)").unwrap();
+        writeln!(self.output, "\treturn c.base.Run(ctx)").unwrap();
         writeln!(self.output, "}}\n").unwrap();
 
         // Generate client methods

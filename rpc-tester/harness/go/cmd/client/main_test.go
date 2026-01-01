@@ -31,7 +31,7 @@ func TestRPC(t *testing.T) {
 
 	transport := volex.NewTCPTransport(conn)
 	client := gen.NewTestServiceClient(transport)
-	client.Start(ctx)
+	go client.Run(ctx)
 
 	// Test echo
 	t.Run("echo simple", func(t *testing.T) {
