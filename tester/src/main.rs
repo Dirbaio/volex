@@ -140,9 +140,38 @@ impl Drop for TestBinary {
     }
 }
 
+use base64::Engine;
+
+/// Try to interpret a JSON value as bytes:
+/// - If it's a string, try to decode it as base64
+/// - If it's an array of numbers, convert each to a u8
+fn try_as_bytes(v: &serde_json::Value) -> Option<Vec<u8>> {
+    match v {
+        serde_json::Value::String(s) => base64::engine::general_purpose::STANDARD.decode(s).ok(),
+        serde_json::Value::Array(arr) => {
+            let mut bytes = Vec::with_capacity(arr.len());
+            for item in arr {
+                let n = item.as_u64()?;
+                if n > 255 {
+                    return None;
+                }
+                bytes.push(n as u8);
+            }
+            Some(bytes)
+        }
+        _ => None,
+    }
+}
+
 fn json_eq_with_float_tolerance(a: &serde_json::Value, b: &serde_json::Value) -> bool {
     const FLOAT_TOLERANCE: f64 = 1e-6;
     const RELATIVE_TOLERANCE: f64 = 1e-6;
+
+    // Handle base64 string vs byte array comparison
+    // Go encodes []byte as base64, while other languages use arrays
+    if let (Some(a_bytes), Some(b_bytes)) = (try_as_bytes(a), try_as_bytes(b)) {
+        return a_bytes == b_bytes;
+    }
 
     match (a, b) {
         (serde_json::Value::Number(a_num), serde_json::Value::Number(b_num)) => {

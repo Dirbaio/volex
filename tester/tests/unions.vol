@@ -165,3 +165,44 @@ union MapStringToString {
     Map({string: string}) = 1  // BYTES, with count (both variable-size)
     Empty = 2
 }
+
+// Nested arrays
+union ArrayOfArrayU8 {
+    Values([[u8]]) = 1
+    Empty = 2
+}
+
+union ArrayOfArrayString {
+    Values([[string]]) = 1
+    Empty = 2
+}
+
+// Nested maps
+union MapStringMapStringU32 {
+    Values({string: {string: u32}}) = 1
+    Empty = 2
+}
+
+// Map of arrays
+union MapStringArrayU8 {
+    Values({string: [u8]}) = 1
+    Empty = 2
+}
+
+// Array of maps
+union ArrayMapStringU32 {
+    Values([{string: u32}]) = 1
+    Empty = 2
+}
+
+// Deeply nested: array of array of array
+union ArrayOfArrayOfArrayU8 {
+    Values([[[u8]]]) = 1
+    Empty = 2
+}
+
+// Mixed nesting: map with array values containing maps
+union MapStringArrayMapStringU8 {
+    Values({string: [{string: u8}]}) = 1
+    Empty = 2
+}

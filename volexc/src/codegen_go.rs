@@ -983,18 +983,16 @@ impl<'a> GoCodeGenerator<'a> {
                 }
             }
             Type::Array(inner) => {
-                // Arrays in BYTES fields: only include count if elements are variable-size
-                if {
-                    let this = &self;
-                    let ty: &Type = &inner.node;
-                    this.schema.fixed_size(ty).is_some()
-                } {
-                    // Fixed-size elements: no count prefix
+                // Arrays in BYTES fields: only skip count if at top level AND elements are fixed-size.
+                // Nested arrays always need a count prefix.
+                let skip_count = in_bytes_field && self.schema.fixed_size(&inner.node).is_some();
+                if skip_count {
+                    // Fixed-size elements at top level: no count prefix
                     writeln!(self.output, "{}for _, item := range {} {{", tabs, value).unwrap();
                     self.encode_value_to_buf("item", &inner.node, indent + 1, buf_var, false);
                     writeln!(self.output, "{}}}", tabs).unwrap();
                 } else {
-                    // Variable-size elements: include count prefix
+                    // Variable-size elements or nested: include count prefix
                     writeln!(
                         self.output,
                         "{}__rt.EncodeLEB128(uint64(len({})), {})",
@@ -1007,25 +1005,19 @@ impl<'a> GoCodeGenerator<'a> {
                 }
             }
             Type::Map(k, v) => {
-                // Maps in BYTES fields: only include count if entries are variable-size
-                let key_fixed = {
-                    let this = &self;
-                    let ty: &Type = &k.node;
-                    this.schema.fixed_size(ty).is_some()
-                };
-                let val_fixed = {
-                    let this = &self;
-                    let ty: &Type = &v.node;
-                    this.schema.fixed_size(ty).is_some()
-                };
-                if key_fixed && val_fixed {
-                    // Fixed-size entries: no count prefix
+                // Maps in BYTES fields: only skip count if at top level AND entries are fixed-size.
+                // Nested maps always need a count prefix.
+                let key_fixed = self.schema.fixed_size(&k.node).is_some();
+                let val_fixed = self.schema.fixed_size(&v.node).is_some();
+                let skip_count = in_bytes_field && key_fixed && val_fixed;
+                if skip_count {
+                    // Fixed-size entries at top level: no count prefix
                     writeln!(self.output, "{}for k, v := range {} {{", tabs, value).unwrap();
                     self.encode_value_to_buf("k", &k.node, indent + 1, buf_var, false);
                     self.encode_value_to_buf("v", &v.node, indent + 1, buf_var, false);
                     writeln!(self.output, "{}}}", tabs).unwrap();
                 } else {
-                    // Variable-size entries: include count prefix
+                    // Variable-size entries or nested: include count prefix
                     writeln!(
                         self.output,
                         "{}__rt.EncodeLEB128(uint64(len({})), {})",

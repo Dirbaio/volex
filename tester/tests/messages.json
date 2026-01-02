@@ -628,5 +628,605 @@
       }
     },
     "nondeterministic_encode": true
+  },
+  {
+    "type": "ArrayOfArrayU8",
+    "description": "array of array u8: empty outer",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayOfArrayU8",
+    "description": "array of array u8: empty inner",
+    "hex": "0c02010000",
+    "json": {
+      "values": [
+        []
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayU8",
+    "description": "array of array u8: single inner",
+    "hex": "0c05010301020300",
+    "json": {
+      "values": [
+        [
+          1,
+          2,
+          3
+        ]
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayU8",
+    "description": "array of array u8: multiple inner",
+    "hex": "0c0903020102030304050000",
+    "json": {
+      "values": [
+        [
+          1,
+          2
+        ],
+        [
+          3,
+          4,
+          5
+        ],
+        []
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayU8Optional",
+    "description": "array of array u8 optional: null",
+    "hex": "00",
+    "json": {
+      "values": null
+    }
+  },
+  {
+    "type": "ArrayOfArrayU8Optional",
+    "description": "array of array u8 optional: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayOfArrayU8Optional",
+    "description": "array of array u8 optional: with values",
+    "hex": "0c0602020102010300",
+    "json": {
+      "values": [
+        [
+          1,
+          2
+        ],
+        [
+          3
+        ]
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayString",
+    "description": "array of array string: empty outer",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayOfArrayString",
+    "description": "array of array string: empty inner",
+    "hex": "0c02010000",
+    "json": {
+      "values": [
+        []
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayString",
+    "description": "array of array string: single inner",
+    "hex": "0c08010301610162016300",
+    "json": {
+      "values": [
+        [
+          "a",
+          "b",
+          "c"
+        ]
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayString",
+    "description": "array of array string: multiple inner",
+    "hex": "0c1403020568656c6c6f05776f726c640103666f6f0000",
+    "json": {
+      "values": [
+        [
+          "hello",
+          "world"
+        ],
+        [
+          "foo"
+        ],
+        []
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayStringOptional",
+    "description": "array of array string optional: null",
+    "hex": "00",
+    "json": {
+      "values": null
+    }
+  },
+  {
+    "type": "ArrayOfArrayStringOptional",
+    "description": "array of array string optional: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayOfArrayStringOptional",
+    "description": "array of array string optional: with values",
+    "hex": "0c0601020178017900",
+    "json": {
+      "values": [
+        [
+          "x",
+          "y"
+        ]
+      ]
+    }
+  },
+  {
+    "type": "MapStringMapStringU32",
+    "description": "map string map string u32: empty outer",
+    "hex": "0c010000",
+    "json": {
+      "values": {}
+    }
+  },
+  {
+    "type": "MapStringMapStringU32",
+    "description": "map string map string u32: empty inner",
+    "hex": "0c040101610000",
+    "json": {
+      "values": {
+        "a": {}
+      }
+    }
+  },
+  {
+    "type": "MapStringMapStringU32",
+    "description": "map string map string u32: single entry",
+    "hex": "0c0f01056f757465720105696e6e65722a00",
+    "json": {
+      "values": {
+        "outer": {
+          "inner": 42
+        }
+      }
+    }
+  },
+  {
+    "type": "MapStringMapStringU32",
+    "description": "map string map string u32: multiple entries",
+    "hex": "0c1002016201017a0301610201790201780100",
+    "json": {
+      "values": {
+        "a": {
+          "x": 1,
+          "y": 2
+        },
+        "b": {
+          "z": 3
+        }
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringMapStringU32Optional",
+    "description": "map string map string u32 optional: null",
+    "hex": "00",
+    "json": {
+      "values": null
+    }
+  },
+  {
+    "type": "MapStringMapStringU32Optional",
+    "description": "map string map string u32 optional: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": {}
+    }
+  },
+  {
+    "type": "MapStringMapStringU32Optional",
+    "description": "map string map string u32 optional: with values",
+    "hex": "0c0e01036b657901066e65737465646400",
+    "json": {
+      "values": {
+        "key": {
+          "nested": 100
+        }
+      }
+    }
+  },
+  {
+    "type": "MapStringArrayU8",
+    "description": "map string array u8: empty outer",
+    "hex": "0c010000",
+    "json": {
+      "values": {}
+    }
+  },
+  {
+    "type": "MapStringArrayU8",
+    "description": "map string array u8: empty inner",
+    "hex": "0c0601036b65790000",
+    "json": {
+      "values": {
+        "key": []
+      }
+    }
+  },
+  {
+    "type": "MapStringArrayU8",
+    "description": "map string array u8: single entry",
+    "hex": "0c0a0104646174610301020300",
+    "json": {
+      "values": {
+        "data": [
+          1,
+          2,
+          3
+        ]
+      }
+    }
+  },
+  {
+    "type": "MapStringArrayU8",
+    "description": "map string array u8: multiple entries",
+    "hex": "0c0f03016203030405016300016102010200",
+    "json": {
+      "values": {
+        "a": [
+          1,
+          2
+        ],
+        "b": [
+          3,
+          4,
+          5
+        ],
+        "c": []
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringArrayU8Optional",
+    "description": "map string array u8 optional: null",
+    "hex": "00",
+    "json": {
+      "values": null
+    }
+  },
+  {
+    "type": "MapStringArrayU8Optional",
+    "description": "map string array u8 optional: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": {}
+    }
+  },
+  {
+    "type": "MapStringArrayU8Optional",
+    "description": "map string array u8 optional: with values",
+    "hex": "0c0b0105627974657303ff008000",
+    "json": {
+      "values": {
+        "bytes": [
+          255,
+          0,
+          128
+        ]
+      }
+    }
+  },
+  {
+    "type": "ArrayMapStringU32",
+    "description": "array map string u32: empty outer",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayMapStringU32",
+    "description": "array map string u32: empty inner",
+    "hex": "0c02010000",
+    "json": {
+      "values": [
+        {}
+      ]
+    }
+  },
+  {
+    "type": "ArrayMapStringU32",
+    "description": "array map string u32: single entry",
+    "hex": "0c08010201610101620200",
+    "json": {
+      "values": [
+        {
+          "a": 1,
+          "b": 2
+        }
+      ]
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "ArrayMapStringU32",
+    "description": "array map string u32: multiple entries",
+    "hex": "0c0d030101780a02017a1e0179140000",
+    "json": {
+      "values": [
+        {
+          "x": 10
+        },
+        {
+          "y": 20,
+          "z": 30
+        },
+        {}
+      ]
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "ArrayMapStringU32Optional",
+    "description": "array map string u32 optional: null",
+    "hex": "00",
+    "json": {
+      "values": null
+    }
+  },
+  {
+    "type": "ArrayMapStringU32Optional",
+    "description": "array map string u32 optional: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayMapStringU32Optional",
+    "description": "array map string u32 optional: with values",
+    "hex": "0c070101036b65792a00",
+    "json": {
+      "values": [
+        {
+          "key": 42
+        }
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8",
+    "description": "array of array of array u8: empty outer",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8",
+    "description": "array of array of array u8: empty middle",
+    "hex": "0c02010000",
+    "json": {
+      "values": [
+        []
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8",
+    "description": "array of array of array u8: empty inner",
+    "hex": "0c0301010000",
+    "json": {
+      "values": [
+        [
+          []
+        ]
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8",
+    "description": "array of array of array u8: single value",
+    "hex": "0c0601010301020300",
+    "json": {
+      "values": [
+        [
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8",
+    "description": "array of array of array u8: complex",
+    "hex": "0c0e030202010201030103040506010000",
+    "json": {
+      "values": [
+        [
+          [
+            1,
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        [
+          [
+            4,
+            5,
+            6
+          ]
+        ],
+        [
+          []
+        ]
+      ]
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8Optional",
+    "description": "array of array of array u8 optional: null",
+    "hex": "00",
+    "json": {
+      "values": null
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8Optional",
+    "description": "array of array of array u8 optional: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": []
+    }
+  },
+  {
+    "type": "ArrayOfArrayOfArrayU8Optional",
+    "description": "array of array of array u8 optional: with values",
+    "hex": "0c070102010102020300",
+    "json": {
+      "values": [
+        [
+          [
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "type": "MapStringArrayMapStringU8",
+    "description": "map string array map string u8: empty outer",
+    "hex": "0c010000",
+    "json": {
+      "values": {}
+    }
+  },
+  {
+    "type": "MapStringArrayMapStringU8",
+    "description": "map string array map string u8: empty array",
+    "hex": "0c0601036b65790000",
+    "json": {
+      "values": {
+        "key": []
+      }
+    }
+  },
+  {
+    "type": "MapStringArrayMapStringU8",
+    "description": "map string array map string u8: empty inner map",
+    "hex": "0c0701036b6579010000",
+    "json": {
+      "values": {
+        "key": [
+          {}
+        ]
+      }
+    }
+  },
+  {
+    "type": "MapStringArrayMapStringU8",
+    "description": "map string array map string u8: single entry",
+    "hex": "0c1001056f75746572010105696e6e65722a00",
+    "json": {
+      "values": {
+        "outer": [
+          {
+            "inner": 42
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "MapStringArrayMapStringU8",
+    "description": "map string array map string u8: complex",
+    "hex": "0c13020161010201780101790201620201017a030000",
+    "json": {
+      "values": {
+        "a": [
+          {
+            "x": 1,
+            "y": 2
+          }
+        ],
+        "b": [
+          {
+            "z": 3
+          },
+          {}
+        ]
+      }
+    },
+    "nondeterministic_encode": true
+  },
+  {
+    "type": "MapStringArrayMapStringU8Optional",
+    "description": "map string array map string u8 optional: null",
+    "hex": "00",
+    "json": {
+      "values": null
+    }
+  },
+  {
+    "type": "MapStringArrayMapStringU8Optional",
+    "description": "map string array map string u8 optional: empty",
+    "hex": "0c010000",
+    "json": {
+      "values": {}
+    }
+  },
+  {
+    "type": "MapStringArrayMapStringU8Optional",
+    "description": "map string array map string u8 optional: with values",
+    "hex": "0c0d01046461746101010376616cff00",
+    "json": {
+      "values": {
+        "data": [
+          {
+            "val": 255
+          }
+        ]
+      }
+    }
   }
 ]

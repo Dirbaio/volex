@@ -187,3 +187,65 @@ message MapStringToFixedStruct {
 message MapStringToString {
     map: {string: string} = 1  // BYTES, with count (both variable-size)
 }
+
+// Nested arrays
+message ArrayOfArrayU8 {
+    values: [[u8]] = 1
+}
+
+message ArrayOfArrayU8Optional {
+    values?: [[u8]] = 1
+}
+
+message ArrayOfArrayString {
+    values: [[string]] = 1
+}
+
+message ArrayOfArrayStringOptional {
+    values?: [[string]] = 1
+}
+
+// Nested maps
+message MapStringMapStringU32 {
+    values: {string: {string: u32}} = 1
+}
+
+message MapStringMapStringU32Optional {
+    values?: {string: {string: u32}} = 1
+}
+
+// Map of arrays
+message MapStringArrayU8 {
+    values: {string: [u8]} = 1
+}
+
+message MapStringArrayU8Optional {
+    values?: {string: [u8]} = 1
+}
+
+// Array of maps
+message ArrayMapStringU32 {
+    values: [{string: u32}] = 1
+}
+
+message ArrayMapStringU32Optional {
+    values?: [{string: u32}] = 1
+}
+
+// Deeply nested: array of array of array
+message ArrayOfArrayOfArrayU8 {
+    values: [[[u8]]] = 1
+}
+
+message ArrayOfArrayOfArrayU8Optional {
+    values?: [[[u8]]] = 1
+}
+
+// Mixed nesting: map with array values containing maps
+message MapStringArrayMapStringU8 {
+    values: {string: [{string: u8}]} = 1
+}
+
+message MapStringArrayMapStringU8Optional {
+    values?: {string: [{string: u8}]} = 1
+}

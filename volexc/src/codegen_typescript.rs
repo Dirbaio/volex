@@ -563,7 +563,10 @@ impl<'a> TypeScriptCodeGenerator<'a> {
             }
             Type::Array(inner) => {
                 let item_var = format!("item{}", depth);
-                if self.schema.fixed_size(&inner.node).is_some() {
+                // Only skip count if at top level AND elements are fixed-size.
+                // Nested arrays always need a count prefix.
+                let skip_count = in_bytes_field && self.schema.fixed_size(&inner.node).is_some();
+                if skip_count {
                     writeln!(self.output, "{}for (const {} of {}) {{", spaces, item_var, value).unwrap();
                     self.encode_value_to_buf_depth(&item_var, &inner.node, indent + 1, buf_var, false, depth + 1);
                     writeln!(self.output, "{}}}", spaces).unwrap();
@@ -584,7 +587,10 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                 let val_var = format!("v{}", depth);
                 let key_fixed = self.schema.fixed_size(&k.node).is_some();
                 let val_fixed = self.schema.fixed_size(&v.node).is_some();
-                if key_fixed && val_fixed {
+                // Only skip count if at top level AND entries are fixed-size.
+                // Nested maps always need a count prefix.
+                let skip_count = in_bytes_field && key_fixed && val_fixed;
+                if skip_count {
                     writeln!(self.output, "{}for (const [{}, {}] of {}) {{", spaces, key_var, val_var, value).unwrap();
                     self.encode_value_to_buf_depth(&key_var, &k.node, indent + 1, buf_var, false, depth + 1);
                     self.encode_value_to_buf_depth(&val_var, &v.node, indent + 1, buf_var, false, depth + 1);
