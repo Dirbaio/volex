@@ -325,10 +325,7 @@
       "values": [
         []
       ]
-    },
-    "skip_languages": [
-      "go"
-    ]
+    }
   },
   {
     "type": "ArrayOfArrayU8",
@@ -342,10 +339,7 @@
           3
         ]
       ]
-    },
-    "skip_languages": [
-      "go"
-    ]
+    }
   },
   {
     "type": "ArrayOfArrayU8",
@@ -364,10 +358,7 @@
         ],
         []
       ]
-    },
-    "skip_languages": [
-      "go"
-    ]
+    }
   },
   {
     "type": "ArrayOfArrayString",
@@ -445,10 +436,7 @@
       "values": {
         "key": []
       }
-    },
-    "skip_languages": [
-      "go"
-    ]
+    }
   },
   {
     "type": "MapStringArrayU8",
@@ -467,10 +455,7 @@
         ]
       }
     },
-    "nondeterministic_encode": true,
-    "skip_languages": [
-      "go"
-    ]
+    "nondeterministic_encode": true
   },
   {
     "type": "ArrayMapStringU32",
@@ -539,10 +524,7 @@
           ]
         ]
       ]
-    },
-    "skip_languages": [
-      "go"
-    ]
+    }
   },
   {
     "type": "MapStringArrayMapStringU8",

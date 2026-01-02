@@ -41,7 +41,7 @@ replace github.com/volex/runtime => {}
             format!(
                 r#"	case "{}":
 		var val {}
-		if err := json.Unmarshal(jsonData, &val); err != nil {{
+		if err := json.Unmarshal(jsonData, &val, byteSliceFromArray); err != nil {{
 			return "", fmt.Errorf("failed to deserialize: %v", err)
 		}}
 		val.Encode(&buf)"#,
@@ -79,6 +79,49 @@ import (
 
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
+	"encoding/json/jsontext"
+)
+
+// byteSliceAsArray marshals []byte as JSON arrays instead of base64 strings.
+// This is needed for testing because the test data uses arrays.
+var byteSliceAsArray = json.WithMarshalers(
+	json.MarshalToFunc(func(enc *jsontext.Encoder, val []byte) error {{
+		// Marshal []byte as a JSON array of numbers
+		if err := enc.WriteToken(jsontext.BeginArray); err != nil {{
+			return err
+		}}
+		for _, b := range val {{
+			if err := enc.WriteToken(jsontext.Uint(uint64(b))); err != nil {{
+				return err
+			}}
+		}}
+		return enc.WriteToken(jsontext.EndArray)
+	}}),
+)
+
+// byteSliceFromArray unmarshals JSON arrays into []byte.
+var byteSliceFromArray = json.WithUnmarshalers(
+	json.UnmarshalFromFunc(func(dec *jsontext.Decoder, val *[]byte) error {{
+		// Check if it's an array
+		if dec.PeekKind() != '[' {{
+			return json.SkipFunc
+		}}
+		// Read array start
+		if _, err := dec.ReadToken(); err != nil {{
+			return err
+		}}
+		*val = []byte{{}}
+		for dec.PeekKind() != ']' {{
+			tok, err := dec.ReadToken()
+			if err != nil {{
+				return err
+			}}
+			*val = append(*val, byte(tok.Uint()))
+		}}
+		// Read array end
+		_, err := dec.ReadToken()
+		return err
+	}}),
 )
 
 type Request struct {{
@@ -152,7 +195,7 @@ func main() {{
 			resp = TestResponse{{Ok: false, Error: fmt.Sprintf("unknown command: %s", req.Cmd)}}
 		}}
 
-		respJson, err := json.Marshal(resp)
+		respJson, err := json.Marshal(resp, byteSliceAsArray)
 		if err != nil {{
 			resp = TestResponse{{Ok: false, Error: fmt.Sprintf("failed to serialize response: %v", err)}}
 			respJson, _ = json.Marshal(resp)
