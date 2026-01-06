@@ -382,6 +382,7 @@ where
         .map(|items| Schema { items })
 }
 
+#[derive(Debug)]
 pub struct ParseError {
     pub span: Span,
     pub message: String,

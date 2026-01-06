@@ -1,0 +1,70 @@
+{
+  "name": "volex",
+  "displayName": "Volex Language Support",
+  "description": "Language support for Volex schema files",
+  "version": "0.1.0",
+  "publisher": "volex",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:volex"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "volex",
+        "aliases": [
+          "Volex",
+          "volex"
+        ],
+        "extensions": [
+          ".vol"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "volex",
+        "scopeName": "source.volex",
+        "path": "./syntaxes/volex.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "volex.restartServer",
+        "title": "Volex: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Volex",
+      "properties": {
+        "volex.lspPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the volex-lsp binary. If empty, will try to find it in PATH or use the one from the workspace."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

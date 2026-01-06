@@ -1,13 +1,7 @@
-mod checker;
-mod codegen_go;
-mod codegen_rust;
-mod codegen_typescript;
-mod parser;
-mod schema;
-
 use std::io::{Read, Write};
 
 use clap::Parser;
+use volexc::{checker, codegen_go, codegen_rust, codegen_typescript, parser};
 
 #[derive(Parser)]
 #[command(name = "volex")]
