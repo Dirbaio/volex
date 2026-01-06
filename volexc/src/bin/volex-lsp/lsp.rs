@@ -185,15 +185,13 @@ impl VolexLsp {
 
         let old_name = match &item_at_position {
             ItemAtPosition::TypeReference(name, _) => name.clone(),
-            ItemAtPosition::ItemDefinition(item, _) => {
-                match item {
-                    Item::Struct(s) => s.name.node.clone(),
-                    Item::Message(m) => m.name.node.clone(),
-                    Item::Enum(e) => e.name.node.clone(),
-                    Item::Union(u) => u.name.node.clone(),
-                    Item::Service(s) => s.name.node.clone(),
-                }
-            }
+            ItemAtPosition::ItemDefinition(item, _) => match item {
+                Item::Struct(s) => s.name.node.clone(),
+                Item::Message(m) => m.name.node.clone(),
+                Item::Enum(e) => e.name.node.clone(),
+                Item::Union(u) => u.name.node.clone(),
+                Item::Service(s) => s.name.node.clone(),
+            },
         };
 
         // Find all references to this name
@@ -265,6 +263,94 @@ impl VolexLsp {
             document_changes: None,
             change_annotations: None,
         })
+    }
+
+    pub fn references(&self, params: ReferenceParams) -> Option<Vec<Location>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        let doc = self.documents.get(uri)?;
+        let schema = doc.schema.as_ref()?;
+        let offset = position_to_offset(&doc.text, position)?;
+
+        // Find what we're looking for references to
+        let item_at_position = find_item_at_position(schema, offset)?;
+
+        let target_name = match &item_at_position {
+            ItemAtPosition::TypeReference(name, _) => name.clone(),
+            ItemAtPosition::ItemDefinition(item, _) => match item {
+                Item::Struct(s) => s.name.node.clone(),
+                Item::Message(m) => m.name.node.clone(),
+                Item::Enum(e) => e.name.node.clone(),
+                Item::Union(u) => u.name.node.clone(),
+                Item::Service(s) => s.name.node.clone(),
+            },
+        };
+
+        let mut locations = Vec::new();
+
+        // Include the definition if requested
+        if include_declaration {
+            if let Some(item) = schema.item(&target_name) {
+                let name_span = match &item.node {
+                    Item::Struct(s) => s.name.span,
+                    Item::Message(m) => m.name.span,
+                    Item::Enum(e) => e.name.span,
+                    Item::Union(u) => u.name.span,
+                    Item::Service(s) => s.name.span,
+                };
+                locations.push(Location {
+                    uri: uri.clone(),
+                    range: span_to_range(&doc.text, name_span),
+                });
+            }
+        }
+
+        // Find all references
+        for item in &schema.items {
+            match &item.node {
+                Item::Struct(s) => {
+                    for field in &s.fields {
+                        collect_type_reference_locations(&field.ty, &target_name, uri, &doc.text, &mut locations);
+                    }
+                }
+                Item::Message(m) => {
+                    for field in &m.fields {
+                        collect_type_reference_locations(&field.ty, &target_name, uri, &doc.text, &mut locations);
+                    }
+                }
+                Item::Union(u) => {
+                    for variant in &u.variants {
+                        if let Some(ref ty) = variant.ty {
+                            collect_type_reference_locations(ty, &target_name, uri, &doc.text, &mut locations);
+                        }
+                    }
+                }
+                Item::Service(s) => {
+                    for method in &s.methods {
+                        collect_type_reference_locations(&method.request, &target_name, uri, &doc.text, &mut locations);
+                        // Check response type
+                        match &method.response.node {
+                            volexc::schema::ServiceResponse::Unary(ty)
+                            | volexc::schema::ServiceResponse::Stream(ty) => {
+                                if let Type::Named(name) = ty {
+                                    if name == &target_name {
+                                        locations.push(Location {
+                                            uri: uri.clone(),
+                                            range: span_to_range(&doc.text, method.response.span),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Some(locations)
     }
 }
 
@@ -448,6 +534,33 @@ fn collect_type_references(
         Type::Map(key, value) => {
             collect_type_references(key, target_name, new_name, text, changes);
             collect_type_references(value, target_name, new_name, text, changes);
+        }
+        _ => {}
+    }
+}
+
+fn collect_type_reference_locations(
+    ty: &Spanned<Type>,
+    target_name: &str,
+    uri: &Url,
+    text: &str,
+    locations: &mut Vec<Location>,
+) {
+    match &ty.node {
+        Type::Named(name) => {
+            if name == target_name {
+                locations.push(Location {
+                    uri: uri.clone(),
+                    range: span_to_range(text, ty.span),
+                });
+            }
+        }
+        Type::Array(inner) => {
+            collect_type_reference_locations(inner, target_name, uri, text, locations);
+        }
+        Type::Map(key, value) => {
+            collect_type_reference_locations(key, target_name, uri, text, locations);
+            collect_type_reference_locations(value, target_name, uri, text, locations);
         }
         _ => {}
     }
