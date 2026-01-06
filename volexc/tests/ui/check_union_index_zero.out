@@ -1,7 +1,7 @@
 Error: index 0 is reserved in union `Foo`
    ╭─[ check_union_index_zero.vol:3:16 ]
    │
- 3 │     Bar(u32) = 0
+ 3 │     Bar(u32) = 0;
    │                ┬  
    │                ╰── indices must be >= 1
 ───╯

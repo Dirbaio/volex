@@ -3,5 +3,5 @@
 message Response {}
 
 service Foo {
-    fn bar(UndefinedRequest) -> Response = 1
+    fn bar(UndefinedRequest) -> Response = 1;
 }

@@ -1,0 +1,5 @@
+// Missing semicolon in union variant
+union Result {
+    Ok(u32) = 0
+    Err(string) = 1;
+}

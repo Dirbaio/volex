@@ -55,14 +55,14 @@ The `call_id` identifies which call the message belongs to. Call IDs are chosen 
 
 Server→Client messages use IDs 0x00-0x7F. Client→Server messages use IDs 0x80-0xFF. This separation allows bidirectional RPC over a single transport.
 
-| Message Type  | ID   | Direction       | Description                            |
-| ------------- | ---- | --------------- | -------------------------------------- |
-| RESPONSE      | 0x00 | Server→Client   | Unary response (ends call)             |
-| STREAM_ITEM   | 0x01 | Server→Client   | Stream item (more to come)             |
-| STREAM_END    | 0x02 | Server→Client   | End of stream (ends call)              |
-| ERROR         | 0x03 | Server→Client   | Error response (ends call)             |
-| REQUEST       | 0x80 | Client→Server   | Request from client                    |
-| CANCEL        | 0x81 | Client→Server   | Cancel an in-progress call             |
+| Message Type | ID   | Direction     | Description                |
+| ------------ | ---- | ------------- | -------------------------- |
+| RESPONSE     | 0x00 | Server→Client | Unary response (ends call) |
+| STREAM_ITEM  | 0x01 | Server→Client | Stream item (more to come) |
+| STREAM_END   | 0x02 | Server→Client | End of stream (ends call)  |
+| ERROR        | 0x03 | Server→Client | Error response (ends call) |
+| REQUEST      | 0x80 | Client→Server | Request from client        |
+| CANCEL       | 0x81 | Client→Server | Cancel an in-progress call |
 
 ## Message Payloads
 
@@ -110,11 +110,11 @@ Error response. Ends the call.
 
 Error codes:
 
-| Code | Meaning            |
-| ---- | ------------------ |
-| 1    | Unknown method     |
-| 2    | Decode error       |
-| 3    | Handler error      |
+| Code | Meaning        |
+| ---- | -------------- |
+| 1    | Unknown method |
+| 2    | Decode error   |
+| 3    | Handler error  |
 
 The error message is a human-readable description encoded as a volex string (LEB128 length + UTF-8 bytes).
 
@@ -208,8 +208,8 @@ Methods are identified by their index as declared in the schema:
 
 ```vol
 service UserService {
-    fn get_user(GetUserRequest) -> GetUserResponse = 1
-    fn list_users(ListUsersRequest) -> stream User = 2
+    fn get_user(GetUserRequest) -> GetUserResponse = 1;
+    fn list_users(ListUsersRequest) -> stream User = 2;
 }
 ```
 
@@ -227,12 +227,12 @@ The `method_index` in REQUEST frames corresponds to these indices. Unknown metho
 
 Protocol-level errors are reported via the ERROR message. Application-level errors should be encoded in the response message itself (using union types as shown in the language reference).
 
-| Scenario              | Handling                    |
-| --------------------- | --------------------------- |
-| Unknown method        | ERROR with code=1           |
-| Malformed request     | ERROR with code=2           |
-| Handler error         | ERROR with code=3           |
-| Connection closed     | Implicit cancellation       |
+| Scenario          | Handling              |
+| ----------------- | --------------------- |
+| Unknown method    | ERROR with code=1     |
+| Malformed request | ERROR with code=2     |
+| Handler error     | ERROR with code=3     |
+| Connection closed | Implicit cancellation |
 
 ## Example Wire Encoding
 
@@ -240,21 +240,22 @@ Given this service:
 
 ```vol
 message EchoRequest {
-    text: string = 1
+    text: string = 1;
 }
 
 message EchoResponse {
-    text: string = 1
+    text: string = 1;
 }
 
 service EchoService {
-    fn echo(EchoRequest) -> EchoResponse = 1
+    fn echo(EchoRequest) -> EchoResponse = 1;
 }
 ```
 
 A call to `echo` with `{ text: "hello" }`:
 
 **REQUEST message:**
+
 ```
 Message type: 0x80 (REQUEST)
 Call ID:      0x01 (1)
@@ -266,6 +267,7 @@ Body:         0c 05 68 65 6c 6c 6f 00
 ```
 
 **RESPONSE message:**
+
 ```
 Message type: 0x00 (RESPONSE)
 Call ID:      0x01 (1)

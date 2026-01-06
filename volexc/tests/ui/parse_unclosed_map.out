@@ -1,9 +1,9 @@
-Error: found end of input expected identifier, or '}'
-   ╭─[ parse_unclosed_map.vol:4:3 ]
+Error: found ';' expected '}'
+   ╭─[ parse_unclosed_map.vol:3:21 ]
    │
- 4 │ }
-   │   │ 
-   │   ╰─ Unexpected end of input
+ 3 │     bar: {string:u32;
+   │                     ┬  
+   │                     ╰── Unexpected ';'
    │ 
-   │ Note: Expected one of: identifier, '}'
+   │ Note: Expected one of: '}'
 ───╯

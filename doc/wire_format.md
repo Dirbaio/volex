@@ -166,9 +166,9 @@ Simply concatenate all field values:
 
 ```
 struct Point {
-    x: f32
-    y: f32
-    z: f32
+    x: f32;
+    y: f32;
+    z: f32;
 }
 ```
 
@@ -190,9 +190,9 @@ If a struct has optional fields, a **presence bitfield** precedes the field data
 
 ```
 struct Item {
-    id: u32           // required (field 0)
-    quantity: u16     // required (field 1)
-    durability?: u8   // optional (field 2, opt index 0)
+    id: u32;           // required (field 0)
+    quantity: u16;     // required (field 1)
+    durability?: u8;   // optional (field 2, opt index 0)
 }
 ```
 
@@ -252,9 +252,9 @@ The message is terminated by a `[00]` byte (tag with index=0).
 
 ```
 message UserProfile {
-    id: u64 = 1
-    username: string = 2
-    email?: string = 3
+    id: u64 = 1;
+    username: string = 2;
+    email?: string = 3;
 }
 ```
 
@@ -282,10 +282,10 @@ When used as a message/union field, enums use wire type `VARINT`.
 
 ```
 enum PlayerStatus {
-    Idle = 0
-    Moving = 1
-    Fighting = 2
-    Dead = 3
+    Idle = 0;
+    Moving = 1;
+    Fighting = 2;
+    Dead = 3;
 }
 ```
 
@@ -314,8 +314,8 @@ For unit variants (no payload), use wire type `UNIT` (no payload bytes):
 
 ```
 union Result {
-    Ok(u32) = 1
-    Error(string) = 2
+    Ok(u32) = 1;
+    Error(string) = 2;
 }
 ```
 
@@ -337,8 +337,8 @@ Encoding `Error("not found")`:
 
 ```
 union Event {
-    Click = 1
-    Move(Point) = 2
+    Click = 1;
+    Move(Point) = 2;
 }
 ```
 

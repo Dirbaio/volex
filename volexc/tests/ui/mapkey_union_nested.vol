@@ -3,15 +3,15 @@
 // typescript:fail
 // Union with struct variant: valid in Rust only
 struct Point {
-    x: u32
-    y: u32
+    x: u32;
+    y: u32;
 }
 
 union Shape {
-    Circle(u32) = 1
-    Rectangle(Point) = 2
+    Circle(u32) = 1;
+    Rectangle(Point) = 2;
 }
 
 struct Test {
-    data: {Shape:string}
+    data: {Shape:string};
 }

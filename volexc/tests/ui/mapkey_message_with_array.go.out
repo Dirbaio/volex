@@ -1,11 +1,11 @@
 Error: invalid map key type: arrays cannot be used as map keys in Go
     ╭─[ mapkey_message_with_array.vol:7:11 ]
     │
-  7 │     tags: [u32] = 2
+  7 │     tags: [u32] = 2;
     │           ──┬──  
     │             ╰──── array type used here
     │ 
- 11 │     data: {Key:string}
+ 11 │     data: {Key:string};
     │            ─┬─  
     │             ╰─── message 'Key' contains invalid field
 ────╯

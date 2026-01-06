@@ -1,4 +1,4 @@
 // Undefined type reference in union
 union Foo {
-    Bar(UndefinedType) = 1
+    Bar(UndefinedType) = 1;
 }

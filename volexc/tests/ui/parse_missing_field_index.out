@@ -1,9 +1,9 @@
-Error: found '}' expected integer
-   ╭─[ parse_missing_field_index.vol:4:1 ]
+Error: found ';' expected integer
+   ╭─[ parse_missing_field_index.vol:3:15 ]
    │
- 4 │ }
-   │ ┬  
-   │ ╰── Unexpected '}'
+ 3 │     bar: u32 =;
+   │               ┬  
+   │               ╰── Unexpected ';'
    │ 
    │ Note: Expected one of: integer
 ───╯

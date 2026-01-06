@@ -1,5 +1,5 @@
 // Duplicate field index in message
 message Foo {
-    bar: u32 = 1
-    baz: u64 = 1
+    bar: u32 = 1;
+    baz: u64 = 1;
 }

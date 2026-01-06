@@ -1,0 +1,5 @@
+// Missing semicolon in struct field
+struct Point {
+    x: u32
+    y: u32;
+}

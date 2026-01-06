@@ -3,15 +3,15 @@
 // typescript:fail
 // Struct with enum field: valid in Rust/Go, invalid in TS
 enum Status {
-    Active = 1
-    Inactive = 2
+    Active = 1;
+    Inactive = 2;
 }
 
 struct Key {
-    id: u32
-    status: Status
+    id: u32;
+    status: Status;
 }
 
 struct Test {
-    data: {Key:string}
+    data: {Key:string};
 }

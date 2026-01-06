@@ -1,0 +1,9 @@
+Error: found 'Err' expected ';'
+   ╭─[ parse_missing_semicolon_union.vol:4:5 ]
+   │
+ 4 │     Err(string) = 1;
+   │     ─┬─  
+   │      ╰─── Unexpected 'Err'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

@@ -1,8 +1,8 @@
 // Duplicate struct definition
 struct Foo {
-    x: u32
+    x: u32;
 }
 
 struct Foo {
-    y: u64
+    y: u64;
 }

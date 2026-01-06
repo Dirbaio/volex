@@ -1,4 +1,4 @@
 // Undefined type in array
 struct Foo {
-    bar: [UndefinedType]
+    bar: [UndefinedType];
 }

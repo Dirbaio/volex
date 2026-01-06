@@ -1,9 +1,9 @@
-Error: found '}' expected '='
-   ╭─[ parse_service_missing_index.vol:8:1 ]
+Error: found ';' expected '='
+   ╭─[ parse_service_missing_index.vol:7:32 ]
    │
- 8 │ }
-   │ ┬  
-   │ ╰── Unexpected '}'
+ 7 │     fn bar(Request) -> Response;
+   │                                ┬  
+   │                                ╰── Unexpected ';'
    │ 
    │ Note: Expected one of: '='
 ───╯

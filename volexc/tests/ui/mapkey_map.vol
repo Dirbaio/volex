@@ -3,5 +3,5 @@
 // typescript:fail
 // Maps cannot be used as map keys in any language
 struct Test {
-    data: {{u32:string}:string}
+    data: {{u32:string}:string};
 }

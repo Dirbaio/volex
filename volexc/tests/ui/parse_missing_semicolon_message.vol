@@ -1,0 +1,5 @@
+// Missing semicolon in message field
+message Request {
+    id: u32 = 1
+    name: string = 2;
+}

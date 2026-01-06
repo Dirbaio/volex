@@ -2,207 +2,207 @@
 
 // Simple union with different wire types
 union SimpleUnion {
-    U8(u8) = 1          // FIXED8
-    U32(u32) = 2        // VARINT
-    F32(f32) = 3        // FIXED32
-    F64(f64) = 4        // FIXED64
-    String(string) = 5  // BYTES
+    U8(u8) = 1;          // FIXED8
+    U32(u32) = 2;        // VARINT
+    F32(f32) = 3;        // FIXED32
+    F64(f64) = 4;        // FIXED64
+    String(string) = 5;  // BYTES
 }
 
 // Union with unit variant
 union WithUnit {
-    None = 1           // UNIT (wire type 7)
-    Some(u32) = 2      // VARINT
+    None = 1;           // UNIT (wire type 7)
+    Some(u32) = 2;      // VARINT
 }
 
 // Union with struct payload
 struct Point {
-    x: f32
-    y: f32
+    x: f32;
+    y: f32;
 }
 
 union Shape {
-    Point(Point) = 1    // BYTES (struct is 8 bytes, fixed-size)
-    Circle(f32) = 2     // FIXED32
+    Point(Point) = 1;    // BYTES (struct is 8 bytes, fixed-size)
+    Circle(f32) = 2;     // FIXED32
 }
 
 // Union with message payload
 message Metadata {
-    key: string = 1
-    value: string = 2
+    key: string = 1;
+    value: string = 2;
 }
 
 union Data {
-    Number(u64) = 1           // VARINT
-    Text(string) = 2          // BYTES
-    Meta(Metadata) = 3        // MESSAGE
+    Number(u64) = 1;           // VARINT
+    Text(string) = 2;          // BYTES
+    Meta(Metadata) = 3;        // MESSAGE
 }
 
 // Union with array payloads
 union Container {
-    FixedArray([u8]) = 1      // BYTES (no count for fixed-size elements)
-    VariableArray([string]) = 2  // BYTES (with count for variable-size elements)
+    FixedArray([u8]) = 1;      // BYTES (no count for fixed-size elements)
+    VariableArray([string]) = 2;  // BYTES (with count for variable-size elements)
 }
 
 // Nested unions
 union Inner {
-    A(u8) = 1
-    B(u16) = 2
+    A(u8) = 1;
+    B(u16) = 2;
 }
 
 union Outer {
-    Inner(Inner) = 1   // UNION
-    Value(u32) = 2     // VARINT
+    Inner(Inner) = 1;   // UNION
+    Value(u32) = 2;     // VARINT
 }
 
 // Union in struct
 struct ResultWrapper {
-    id: u32
-    result: SimpleUnion
+    id: u32;
+    result: SimpleUnion;
 }
 
 // Union in message
 message Response {
-    id: u32 = 1
-    data: SimpleUnion = 2
+    id: u32 = 1;
+    data: SimpleUnion = 2;
 }
 
 // Optional union
 struct OptionalUnion {
-    value?: SimpleUnion
+    value?: SimpleUnion;
 }
 
 // Array of unions
 struct UnionList {
-    items: [SimpleUnion]
+    items: [SimpleUnion];
 }
 
 // Testing all wire types in union context
 union AllWireTypes {
-    Fixed8(u8) = 1       // FIXED8
-    Fixed8Bool(bool) = 2 // FIXED8
-    Varint16(u16) = 3    // VARINT
-    Varint32(u32) = 4    // VARINT
-    Varint64(u64) = 5    // VARINT
-    Fixed32(f32) = 6     // FIXED32
-    Fixed64(f64) = 7     // FIXED64
-    Bytes(string) = 8    // BYTES
-    Unit = 9             // UNIT
+    Fixed8(u8) = 1;       // FIXED8
+    Fixed8Bool(bool) = 2; // FIXED8
+    Varint16(u16) = 3;    // VARINT
+    Varint32(u32) = 4;    // VARINT
+    Varint64(u64) = 5;    // VARINT
+    Fixed32(f32) = 6;     // FIXED32
+    Fixed64(f64) = 7;     // FIXED64
+    Bytes(string) = 8;    // BYTES
+    Unit = 9;             // UNIT
 }
 
 // Sparse indices
 union SparseUnion {
-    First(u8) = 1
-    Second(u8) = 10
-    Third(u8) = 100
+    First(u8) = 1;
+    Second(u8) = 10;
+    Third(u8) = 100;
 }
 
 // Struct with only fixed-size fields (fixed-size struct) - with floats
 struct FixedSizeStructWithFloat {
-    a: u8
-    b: f32
-    c: u8
+    a: u8;
+    b: f32;
+    c: u8;
 }
 
 // Struct with only fixed-size fields that can be used as map key (no floats)
 struct FixedSizeStruct {
-    a: u8
-    b: u16
-    c: u8
+    a: u8;
+    b: u16;
+    c: u8;
 }
 
 // Struct with variable-size field (variable-size struct)
 struct VariableSizeStruct {
-    id: u32
-    name: string
+    id: u32;
+    name: string;
 }
 
 // Arrays of structs in unions - fixed-size elements (no count prefix)
 union ArrayOfFixedStruct {
-    Items([FixedSizeStruct]) = 1  // BYTES, no count (struct is fixed-size)
-    Empty = 2
+    Items([FixedSizeStruct]) = 1;  // BYTES, no count (struct is fixed-size)
+    Empty = 2;
 }
 
 union ArrayOfFixedStructWithFloat {
-    Items([FixedSizeStructWithFloat]) = 1  // BYTES, no count (struct is fixed-size)
-    Empty = 2
+    Items([FixedSizeStructWithFloat]) = 1;  // BYTES, no count (struct is fixed-size)
+    Empty = 2;
 }
 
 // Arrays of structs in unions - variable-size elements (with count prefix)
 union ArrayOfVariableStruct {
-    Items([VariableSizeStruct]) = 1  // BYTES, with count (struct has string)
-    Empty = 2
+    Items([VariableSizeStruct]) = 1;  // BYTES, with count (struct has string)
+    Empty = 2;
 }
 
 // Maps with u8 key in unions
 union MapU8ToU8 {
-    Map({u8: u8}) = 1  // BYTES, no count (both key and value fixed-size)
-    Empty = 2
+    Map({u8: u8}) = 1;  // BYTES, no count (both key and value fixed-size)
+    Empty = 2;
 }
 
 union MapU8ToFixedStruct {
-    Map({u8: FixedSizeStruct}) = 1  // BYTES, no count (both fixed-size)
-    Empty = 2
+    Map({u8: FixedSizeStruct}) = 1;  // BYTES, no count (both fixed-size)
+    Empty = 2;
 }
 
 union MapU8ToString {
-    Map({u8: string}) = 1  // BYTES, with count (value is variable-size)
-    Empty = 2
+    Map({u8: string}) = 1;  // BYTES, with count (value is variable-size)
+    Empty = 2;
 }
 
 // Maps with string key in unions
 union MapStringToU8 {
-    Map({string: u8}) = 1  // BYTES, with count (key is variable-size)
-    Empty = 2
+    Map({string: u8}) = 1;  // BYTES, with count (key is variable-size)
+    Empty = 2;
 }
 
 union MapStringToFixedStruct {
-    Map({string: FixedSizeStruct}) = 1  // BYTES, with count (key is variable-size)
-    Empty = 2
+    Map({string: FixedSizeStruct}) = 1;  // BYTES, with count (key is variable-size)
+    Empty = 2;
 }
 
 union MapStringToString {
-    Map({string: string}) = 1  // BYTES, with count (both variable-size)
-    Empty = 2
+    Map({string: string}) = 1;  // BYTES, with count (both variable-size)
+    Empty = 2;
 }
 
 // Nested arrays
 union ArrayOfArrayU8 {
-    Values([[u8]]) = 1
-    Empty = 2
+    Values([[u8]]) = 1;
+    Empty = 2;
 }
 
 union ArrayOfArrayString {
-    Values([[string]]) = 1
-    Empty = 2
+    Values([[string]]) = 1;
+    Empty = 2;
 }
 
 // Nested maps
 union MapStringMapStringU32 {
-    Values({string: {string: u32}}) = 1
-    Empty = 2
+    Values({string: {string: u32}}) = 1;
+    Empty = 2;
 }
 
 // Map of arrays
 union MapStringArrayU8 {
-    Values({string: [u8]}) = 1
-    Empty = 2
+    Values({string: [u8]}) = 1;
+    Empty = 2;
 }
 
 // Array of maps
 union ArrayMapStringU32 {
-    Values([{string: u32}]) = 1
-    Empty = 2
+    Values([{string: u32}]) = 1;
+    Empty = 2;
 }
 
 // Deeply nested: array of array of array
 union ArrayOfArrayOfArrayU8 {
-    Values([[[u8]]]) = 1
-    Empty = 2
+    Values([[[u8]]]) = 1;
+    Empty = 2;
 }
 
 // Mixed nesting: map with array values containing maps
 union MapStringArrayMapStringU8 {
-    Values({string: [{string: u8}]}) = 1
-    Empty = 2
+    Values({string: [{string: u8}]}) = 1;
+    Empty = 2;
 }

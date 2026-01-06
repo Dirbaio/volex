@@ -3,15 +3,15 @@
 // typescript:fail
 // Nested struct with valid fields: valid in Rust/Go, invalid in TS
 struct Inner {
-    a: u32
-    b: u64
+    a: u32;
+    b: u64;
 }
 
 struct Outer {
-    x: u32
-    inner: Inner
+    x: u32;
+    inner: Inner;
 }
 
 struct Test {
-    data: {Outer:string}
+    data: {Outer:string};
 }

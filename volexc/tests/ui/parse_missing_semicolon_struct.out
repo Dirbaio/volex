@@ -1,0 +1,9 @@
+Error: found 'y' expected ';'
+   ╭─[ parse_missing_semicolon_struct.vol:4:5 ]
+   │
+ 4 │     y: u32;
+   │     ┬  
+   │     ╰── Unexpected 'y'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

@@ -1,0 +1,9 @@
+Error: found 'Inactive' expected ';'
+   ╭─[ parse_missing_semicolon_enum.vol:4:5 ]
+   │
+ 4 │     Inactive = 1;
+   │     ────┬───  
+   │         ╰───── Unexpected 'Inactive'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

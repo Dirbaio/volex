@@ -1,5 +1,5 @@
 /* This comment is never closed
 
 struct Foo {
-    bar: u32
+    bar: u32;
 }

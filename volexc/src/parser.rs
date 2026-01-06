@@ -71,6 +71,7 @@ fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<(Token, Span)>, extra::Err<
         just("->").to(Token::Arrow),
         just('=').to(Token::Eq),
         just('?').to(Token::Question),
+        just(';').to(Token::Semicolon),
     ));
 
     let line_comment = just("//")
@@ -137,6 +138,7 @@ enum Token {
     Arrow,
     Eq,
     Question,
+    Semicolon,
 }
 
 impl std::fmt::Display for Token {
@@ -173,6 +175,7 @@ impl std::fmt::Display for Token {
             Token::Arrow => write!(f, "->"),
             Token::Eq => write!(f, "="),
             Token::Question => write!(f, "?"),
+            Token::Semicolon => write!(f, ";"),
         }
     }
 }
@@ -228,13 +231,14 @@ where
 
     let spanned_ty = ty.map_with(spanned);
 
-    // Struct field: name: Type  or  name?: Type
+    // Struct field: name: Type;  or  name?: Type;
     let struct_field = ident
         .clone()
         .map_with(spanned)
         .then(just(Token::Question).or_not())
         .then_ignore(just(Token::Colon))
         .then(spanned_ty.clone())
+        .then_ignore(just(Token::Semicolon))
         .map(|((name, opt), ty)| StructField {
             name,
             ty,
@@ -242,7 +246,7 @@ where
         })
         .map_with(spanned);
 
-    // Message field: name: Type = index  or  name?: Type = index
+    // Message field: name: Type = index;  or  name?: Type = index;
     let message_field = ident
         .clone()
         .map_with(spanned)
@@ -251,6 +255,7 @@ where
         .then(spanned_ty.clone())
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
+        .then_ignore(just(Token::Semicolon))
         .map(|(((name, opt), ty), index)| MessageField {
             name,
             ty,
@@ -259,16 +264,17 @@ where
         })
         .map_with(spanned);
 
-    // Enum variant: Name = index
+    // Enum variant: Name = index;
     let enum_variant = ident
         .clone()
         .map_with(spanned)
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
+        .then_ignore(just(Token::Semicolon))
         .map(|(name, index)| EnumVariant { name, index })
         .map_with(spanned);
 
-    // Union variant: Name = index  or  Name(Type) = index
+    // Union variant: Name = index;  or  Name(Type) = index;
     let union_variant = ident
         .clone()
         .map_with(spanned)
@@ -280,6 +286,7 @@ where
         )
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
+        .then_ignore(just(Token::Semicolon))
         .map(|((name, ty), index)| UnionVariant { name, ty, index })
         .map_with(spanned);
 
@@ -343,7 +350,7 @@ where
             .map_with(|ty, e| Spanned::new(ServiceResponse::Unary(ty.node), e.span())),
     )));
 
-    // Service method: fn name(Type) -> Type = index
+    // Service method: fn name(Type) -> Type = index;
     let service_method = just(Token::Fn)
         .ignore_then(ident.clone().map_with(spanned))
         .then(
@@ -354,6 +361,7 @@ where
         .then(service_response)
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
+        .then_ignore(just(Token::Semicolon))
         .map(|(((name, request), response), index)| ServiceMethod {
             name,
             request,

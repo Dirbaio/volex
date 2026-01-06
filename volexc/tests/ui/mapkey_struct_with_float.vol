@@ -3,10 +3,10 @@
 // typescript:fail
 // Struct containing float is invalid as map key in all languages
 struct Key {
-    id: u32
-    value: f64
+    id: u32;
+    value: f64;
 }
 
 struct Test {
-    data: {Key:string}
+    data: {Key:string};
 }

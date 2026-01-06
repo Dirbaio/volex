@@ -287,8 +287,18 @@ fn launch_test_binary(suite: &str, lang: Language) -> Result<Child, String> {
         .map_err(|e| format!("failed to run compiler: {}", e))?;
 
     if !compile_output.status.success() {
-        eprintln!("Compiler stderr:\n{}", String::from_utf8_lossy(&compile_output.stderr));
-        return Err("schema compilation failed".to_string());
+        let stdout = String::from_utf8_lossy(&compile_output.stdout);
+        let stderr = String::from_utf8_lossy(&compile_output.stderr);
+        if !stdout.is_empty() {
+            eprintln!("Compiler stdout:\n{}", stdout);
+        }
+        if !stderr.is_empty() {
+            eprintln!("Compiler stderr:\n{}", stderr);
+        }
+        return Err(format!(
+            "schema compilation failed with status: {}",
+            compile_output.status
+        ));
     }
 
     fs::write(&generated_path, &compile_output.stdout).map_err(|e| format!("failed to write generated code: {}", e))?;

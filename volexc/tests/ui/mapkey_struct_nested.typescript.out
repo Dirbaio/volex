@@ -1,7 +1,7 @@
 Error: invalid map key type: structs cannot be used as map keys in TypeScript
     ╭─[ mapkey_struct_nested.vol:16:12 ]
     │
- 16 │     data: {Outer:string}
+ 16 │     data: {Outer:string};
     │            ──┬──  
     │              ╰──── struct 'Outer' used here
 ────╯

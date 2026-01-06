@@ -3,5 +3,5 @@
 message Request {}
 
 service Foo {
-    fn bar(Request) -> stream UndefinedEvent = 1
+    fn bar(Request) -> stream UndefinedEvent = 1;
 }

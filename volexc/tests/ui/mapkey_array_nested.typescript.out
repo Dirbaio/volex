@@ -1,7 +1,7 @@
 Error: invalid map key type: arrays cannot be used as map keys in TypeScript
    ╭─[ mapkey_array_nested.vol:6:12 ]
    │
- 6 │     data: {[[u32]]:string}
+ 6 │     data: {[[u32]]:string};
    │            ───┬───  
    │               ╰───── array type used here
 ───╯

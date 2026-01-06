@@ -1,7 +1,7 @@
 Error: undefined type `UndefinedType`
    ╭─[ check_undefined_type_map_key.vol:3:11 ]
    │
- 3 │     bar: {UndefinedType:u32}
+ 3 │     bar: {UndefinedType:u32};
    │           ──────┬──────  
    │                 ╰──────── not found
 ───╯

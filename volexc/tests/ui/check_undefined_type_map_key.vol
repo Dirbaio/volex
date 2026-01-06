@@ -1,4 +1,4 @@
 // Undefined type in map key
 struct Foo {
-    bar: {UndefinedType:u32}
+    bar: {UndefinedType:u32};
 }

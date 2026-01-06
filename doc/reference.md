@@ -56,9 +56,9 @@ Arrays use square bracket syntax:
 
 ```vol
 struct Example {
-    numbers: [u32]
-    names: [string]
-    points: [Point]
+    numbers: [u32];
+    names: [string];
+    points: [Point];
 }
 ```
 
@@ -90,8 +90,8 @@ Additionally, there's a few language-specific restrictions:
 
 ```vol
 message Config {
-    settings: {string: string} = 1
-    scores: {u64: u32} = 2
+    settings: {string: string} = 1;
+    scores: {u64: u32} = 2;
 }
 ```
 
@@ -105,8 +105,8 @@ Fields can be made optional. When serialized, presence is indicated with a bitfi
 
 ```vol
 struct StructName {
-    field_name: Type
-    another_field: Type
+    field_name: Type;
+    another_field: Type;
 }
 ```
 
@@ -115,9 +115,9 @@ struct StructName {
 ```vol
 // Simple struct
 struct Point {
-    x: f32
-    y: f32
-    z: f32
+    x: f32;
+    y: f32;
+    z: f32;
 }
 
 // Empty struct
@@ -126,14 +126,14 @@ struct Empty {
 
 // Nested structs
 struct Line {
-    start: Point
-    end: Point
+    start: Point;
+    end: Point;
 }
 
 // Struct with optional field
 struct OptionalData {
-    id: u32
-    name?: string
+    id: u32;
+    name?: string;
 }
 ```
 
@@ -153,8 +153,8 @@ Indices must be 1 or greater. 0 is not allowed. Indices can be non-sequential.
 
 ```vol
 message MessageName {
-    field_name: Type = index
-    optional_field?: Type = index
+    field_name: Type = index;
+    optional_field?: Type = index;
 }
 ```
 
@@ -163,10 +163,10 @@ message MessageName {
 ```vol
 // Basic message
 message UserProfile {
-    id: u64 = 1
-    username: string = 2
-    email?: string = 3
-    verified: bool = 4
+    id: u64 = 1;
+    username: string = 2;
+    email?: string = 3;
+    verified: bool = 4;
 }
 
 // Empty message
@@ -175,9 +175,9 @@ message EmptyMessage {
 
 // Message with collections
 message GameState {
-    player_id: u64 = 1
-    inventory: [Item] = 2
-    metadata?: {string: string} = 3
+    player_id: u64 = 1;
+    inventory: [Item] = 2;
+    metadata?: {string: string} = 3;
 }
 ```
 
@@ -193,7 +193,7 @@ Indices must be 0 or greater, and can be non-sequential.
 
 ```vol
 enum EnumName {
-    VariantName = index
+    VariantName = index;
 }
 ```
 
@@ -202,23 +202,23 @@ enum EnumName {
 ```vol
 // Sequential indices
 enum Status {
-    Idle = 0
-    Active = 1
-    Paused = 2
-    Stopped = 3
+    Idle = 0;
+    Active = 1;
+    Paused = 2;
+    Stopped = 3;
 }
 
 // Non-sequential indices
 enum Priority {
-    Low = 0
-    Medium = 5
-    High = 10
-    Critical = 100
+    Low = 0;
+    Medium = 5;
+    High = 10;
+    Critical = 100;
 }
 
 // Single variant
 enum Unit {
-    Value = 0
+    Value = 0;
 }
 ```
 
@@ -234,8 +234,8 @@ Indices must be 1 or greater. 0 is not allowed. Indices can be non-sequential.
 
 ```vol
 union UnionName {
-    VariantName = index          // Unit variant
-    VariantName(Type) = index    // Variant with data
+    VariantName = index;          // Unit variant
+    VariantName(Type) = index;    // Variant with data
 }
 ```
 
@@ -244,28 +244,28 @@ union UnionName {
 ```vol
 // Simple union
 union Result {
-    Ok(u32) = 1
-    Error(string) = 2
+    Ok(u32) = 1;
+    Error(string) = 2;
 }
 
 // Union with unit variant
 union Option {
-    None = 1
-    Some(u32) = 2
+    None = 1;
+    Some(u32) = 2;
 }
 
 // Union with complex types
 union Event {
-    Click = 1
-    Move(Point) = 2
-    Resize(ResizeData) = 3
-    Custom(GameState) = 4
+    Click = 1;
+    Move(Point) = 2;
+    Resize(ResizeData) = 3;
+    Custom(GameState) = 4;
 }
 
 // Nested unions
 union Nested {
-    Inner(InnerUnion) = 1
-    Outer(string) = 2
+    Inner(InnerUnion) = 1;
+    Outer(string) = 2;
 }
 ```
 
@@ -277,7 +277,7 @@ Services define RPC interfaces with named methods. Each method has a request typ
 
 ```vol
 service ServiceName {
-    fn method_name(RequestType) -> ResponseType = index
+    fn method_name(RequestType) -> ResponseType = index;
 }
 ```
 
@@ -289,17 +289,17 @@ The simplest form of RPC method takes a request and returns a response:
 
 ```vol
 service UserService {
-    fn get_user(GetUserRequest) -> GetUserResponse = 1
-    fn create_user(CreateUserRequest) -> CreateUserResponse = 2
-    fn delete_user(DeleteUserRequest) -> DeleteUserResponse = 3
+    fn get_user(GetUserRequest) -> GetUserResponse = 1;
+    fn create_user(CreateUserRequest) -> CreateUserResponse = 2;
+    fn delete_user(DeleteUserRequest) -> DeleteUserResponse = 3;
 }
 
 message GetUserRequest {
-    id: u64 = 1
+    id: u64 = 1;
 }
 
 message GetUserResponse {
-    user?: User = 1
+    user?: User = 1;
 }
 ```
 
@@ -309,7 +309,7 @@ Methods can return a stream of responses using the `stream` keyword. The client 
 
 ```vol
 service EventService {
-    fn subscribe(SubscribeRequest) -> stream Event = 1
+    fn subscribe(SubscribeRequest) -> stream Event = 1;
 }
 ```
 
@@ -318,39 +318,39 @@ service EventService {
 ```vol
 // Request/Response types
 message LoginRequest {
-    username: string = 1
-    password: string = 2
+    username: string = 1;
+    password: string = 2;
 }
 
 message LoginResponse {
-    token?: string = 1
-    error?: string = 2
+    token?: string = 1;
+    error?: string = 2;
 }
 
 message LogoutRequest {
-    token: string = 1
+    token: string = 1;
 }
 
 message LogoutResponse {}
 
 message ChatMessage {
-    sender: string = 1
-    content: string = 2
-    timestamp: u64 = 3
+    sender: string = 1;
+    content: string = 2;
+    timestamp: u64 = 3;
 }
 
 message SubscribeRequest {
-    channel: string = 1
+    channel: string = 1;
 }
 
 // Service definition
 service MessagingService {
     // Simple request-response
-    fn login(LoginRequest) -> LoginResponse = 1
-    fn logout(LogoutRequest) -> LogoutResponse = 2
+    fn login(LoginRequest) -> LoginResponse = 1;
+    fn logout(LogoutRequest) -> LogoutResponse = 2;
 
     // Server streaming
-    fn subscribe(SubscribeRequest) -> stream ChatMessage = 3
+    fn subscribe(SubscribeRequest) -> stream ChatMessage = 3;
 }
 ```
 
@@ -360,14 +360,14 @@ Error handling is not built into the service definition syntax. Instead, use uni
 
 ```vol
 union GetUserResponse {
-    Ok(User) = 1
-    NotFound = 2
-    PermissionDenied(string) = 3
-    InternalError(string) = 4
+    Ok(User) = 1;
+    NotFound = 2;
+    PermissionDenied(string) = 3;
+    InternalError(string) = 4;
 }
 
 service UserService {
-    fn get_user(GetUserRequest) -> GetUserResponse = 1
+    fn get_user(GetUserRequest) -> GetUserResponse = 1;
 }
 ```
 

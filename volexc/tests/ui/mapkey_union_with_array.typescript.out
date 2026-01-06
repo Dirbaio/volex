@@ -1,7 +1,7 @@
 Error: invalid map key type: unions cannot be used as map keys in TypeScript
     ╭─[ mapkey_union_with_array.vol:11:12 ]
     │
- 11 │     data: {Value:string}
+ 11 │     data: {Value:string};
     │            ──┬──  
     │              ╰──── union 'Value' used here
 ────╯

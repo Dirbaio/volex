@@ -1,7 +1,7 @@
 Error: invalid map key type: messages cannot be used as map keys in TypeScript
     ╭─[ mapkey_message_with_array.vol:11:12 ]
     │
- 11 │     data: {Key:string}
+ 11 │     data: {Key:string};
     │            ─┬─  
     │             ╰─── message 'Key' used here
 ────╯

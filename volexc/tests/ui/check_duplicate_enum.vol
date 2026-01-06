@@ -1,8 +1,8 @@
 // Duplicate enum definition
 enum Status {
-    Ok = 1
+    Ok = 1;
 }
 
 enum Status {
-    Error = 2
+    Error = 2;
 }

@@ -4,9 +4,9 @@ message Request {}
 message Response {}
 
 service Foo {
-    fn bar(Request) -> Response = 1
+    fn bar(Request) -> Response = 1;
 }
 
 service Foo {
-    fn baz(Request) -> Response = 1
+    fn baz(Request) -> Response = 1;
 }

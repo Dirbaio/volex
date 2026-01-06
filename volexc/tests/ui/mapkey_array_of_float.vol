@@ -3,5 +3,5 @@
 // typescript:fail
 // Array of floats is invalid as map key in all languages
 struct Test {
-    data: {[f32]:string}
+    data: {[f32]:string};
 }

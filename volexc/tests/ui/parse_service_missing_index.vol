@@ -4,5 +4,5 @@ message Request {}
 message Response {}
 
 service Foo {
-    fn bar(Request) -> Response
+    fn bar(Request) -> Response;
 }

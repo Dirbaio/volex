@@ -3,10 +3,10 @@
 // typescript:fail
 // Arrays of enums as map keys: valid in Rust, invalid in Go/TS
 enum Status {
-    Active = 1
-    Inactive = 2
+    Active = 1;
+    Inactive = 2;
 }
 
 struct Test {
-    data: {[Status]:string}
+    data: {[Status]:string};
 }

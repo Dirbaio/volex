@@ -1,9 +1,9 @@
-Error: found '}' expected ']'
-   ╭─[ parse_unclosed_bracket.vol:4:1 ]
+Error: found ';' expected ']'
+   ╭─[ parse_unclosed_bracket.vol:3:14 ]
    │
- 4 │ }
-   │ ┬  
-   │ ╰── Unexpected '}'
+ 3 │     bar: [u32;
+   │              ┬  
+   │              ╰── Unexpected ';'
    │ 
    │ Note: Expected one of: ']'
 ───╯

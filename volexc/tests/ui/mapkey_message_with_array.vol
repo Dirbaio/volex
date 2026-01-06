@@ -3,10 +3,10 @@
 // typescript:fail
 // Message with array field: valid in Rust only
 message Key {
-    id: u32 = 1
-    tags: [u32] = 2
+    id: u32 = 1;
+    tags: [u32] = 2;
 }
 
 struct Test {
-    data: {Key:string}
+    data: {Key:string};
 }

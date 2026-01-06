@@ -3,5 +3,5 @@
 // typescript:fail
 // Nested arrays as map keys: valid in Rust, invalid in Go/TS
 struct Test {
-    data: {[[u32]]:string}
+    data: {[[u32]]:string};
 }

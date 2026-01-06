@@ -1,10 +1,10 @@
 Error: duplicate field `bar` in struct `Foo`
    ╭─[ check_duplicate_struct_field.vol:3:5 ]
    │
- 3 │     bar: u32
+ 3 │     bar: u32;
    │     ─┬─  
    │      ╰─── first defined here
- 4 │     bar: u64
+ 4 │     bar: u64;
    │     ─┬─  
    │      ╰─── redefined here
 ───╯

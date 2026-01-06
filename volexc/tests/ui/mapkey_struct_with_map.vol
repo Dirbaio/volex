@@ -3,10 +3,10 @@
 // typescript:fail
 // Struct containing map is invalid as map key in all languages
 struct Key {
-    id: u32
-    metadata: {string:string}
+    id: u32;
+    metadata: {string:string};
 }
 
 struct Test {
-    data: {Key:string}
+    data: {Key:string};
 }
