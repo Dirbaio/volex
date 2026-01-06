@@ -382,25 +382,29 @@ where
         .map(|items| Schema { items })
 }
 
-#[derive(Debug)]
-pub struct ParseError {
-    pub span: Span,
-    pub message: String,
-    pub found: Option<String>,
-    pub expected: Vec<String>,
-}
-
-pub fn parse(src: &str) -> Result<Schema, Vec<ParseError>> {
+pub fn parse(src: &str) -> Result<Schema, Vec<crate::CompileError>> {
     let (tokens, lex_errs) = lexer().parse(src).into_output_errors();
 
     if !lex_errs.is_empty() {
         return Err(lex_errs
             .into_iter()
-            .map(|e| ParseError {
-                span: *e.span(),
-                message: e.to_string(),
-                found: e.found().map(|c| c.to_string()),
-                expected: e
+            .map(|e| {
+                let mut err = crate::CompileError {
+                    span: *e.span(),
+                    message: e.to_string(),
+                    labels: vec![],
+                    notes: vec![],
+                };
+
+                // Add a label with what was found
+                let label_msg = e
+                    .found()
+                    .map(|c| format!("Unexpected '{}'", c))
+                    .unwrap_or_else(|| "Unexpected end of input".to_string());
+                err.labels.push((*e.span(), label_msg, ariadne::Color::Red));
+
+                // Add expected tokens as notes
+                let expected: Vec<_> = e
                     .expected()
                     .filter_map(|p| match p {
                         chumsky::error::RichPattern::Token(t) => Some(format!("'{}'", &**t)),
@@ -408,7 +412,13 @@ pub fn parse(src: &str) -> Result<Schema, Vec<ParseError>> {
                         chumsky::error::RichPattern::EndOfInput => Some("end of input".to_string()),
                         _ => None,
                     })
-                    .collect(),
+                    .collect();
+
+                if !expected.is_empty() {
+                    err.notes.push(format!("Expected one of: {}", expected.join(", ")));
+                }
+
+                err
             })
             .collect());
     }
@@ -423,11 +433,23 @@ pub fn parse(src: &str) -> Result<Schema, Vec<ParseError>> {
     if !parse_errs.is_empty() {
         return Err(parse_errs
             .into_iter()
-            .map(|e| ParseError {
-                span: *e.span(),
-                message: e.to_string(),
-                found: e.found().map(|t| t.to_string()),
-                expected: e
+            .map(|e| {
+                let mut err = crate::CompileError {
+                    span: *e.span(),
+                    message: e.to_string(),
+                    labels: vec![],
+                    notes: vec![],
+                };
+
+                // Add a label with what was found
+                let label_msg = e
+                    .found()
+                    .map(|t| format!("Unexpected '{}'", t))
+                    .unwrap_or_else(|| "Unexpected end of input".to_string());
+                err.labels.push((*e.span(), label_msg, ariadne::Color::Red));
+
+                // Add expected tokens as notes
+                let expected: Vec<_> = e
                     .expected()
                     .filter_map(|p| match p {
                         chumsky::error::RichPattern::Token(t) => Some(format!("'{}'", &**t)),
@@ -435,38 +457,16 @@ pub fn parse(src: &str) -> Result<Schema, Vec<ParseError>> {
                         chumsky::error::RichPattern::EndOfInput => Some("end of input".to_string()),
                         _ => None,
                     })
-                    .collect(),
+                    .collect();
+
+                if !expected.is_empty() {
+                    err.notes.push(format!("Expected one of: {}", expected.join(", ")));
+                }
+
+                err
             })
             .collect());
     }
 
     Ok(schema.unwrap())
-}
-
-pub fn print_errors(filename: &str, src: &str, errs: Vec<ParseError>) {
-    use ariadne::{Color, Label, Report, ReportKind, Source};
-
-    for err in errs {
-        let err_span = err.span.start..err.span.end;
-        let mut report = Report::build(ReportKind::Error, (filename, err_span.clone())).with_message(&err.message);
-
-        // Add a label for the error span
-        report = report.with_label(
-            Label::new((filename, err_span))
-                .with_message(
-                    err.found
-                        .as_ref()
-                        .map(|t| format!("Unexpected '{}'", t))
-                        .unwrap_or_else(|| "Unexpected end of input".to_string()),
-                )
-                .with_color(Color::Red),
-        );
-
-        // Add expected tokens as a note
-        if !err.expected.is_empty() {
-            report = report.with_note(format!("Expected one of: {}", err.expected.join(", ")));
-        }
-
-        report.finish().print((filename, Source::from(src))).unwrap();
-    }
 }

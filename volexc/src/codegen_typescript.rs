@@ -456,7 +456,12 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                 let key_var = format!("k{}", depth);
                 let val_var = format!("v{}", depth);
                 writeln!(self.output, "{}__rt.encodeVarint({}.size, buf);", spaces, value).unwrap();
-                writeln!(self.output, "{}for (const [{}, {}] of {}) {{", spaces, key_var, val_var, value).unwrap();
+                writeln!(
+                    self.output,
+                    "{}for (const [{}, {}] of {}) {{",
+                    spaces, key_var, val_var, value
+                )
+                .unwrap();
                 self.encode_value_depth(&key_var, &k.node, indent + 1, depth + 1);
                 self.encode_value_depth(&val_var, &v.node, indent + 1, depth + 1);
                 writeln!(self.output, "{}}}", spaces).unwrap();
@@ -535,7 +540,15 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         self.encode_value_to_buf_depth(value, ty, indent, buf_var, in_bytes_field, 0);
     }
 
-    fn encode_value_to_buf_depth(&mut self, value: &str, ty: &Type, indent: usize, buf_var: &str, in_bytes_field: bool, depth: usize) {
+    fn encode_value_to_buf_depth(
+        &mut self,
+        value: &str,
+        ty: &Type,
+        indent: usize,
+        buf_var: &str,
+        in_bytes_field: bool,
+        depth: usize,
+    ) {
         let spaces = "  ".repeat(indent);
         match ty {
             Type::Bool => writeln!(self.output, "{}__rt.encodeBool({}, {});", spaces, value, buf_var).unwrap(),
@@ -591,13 +604,23 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                 // Nested maps always need a count prefix.
                 let skip_count = in_bytes_field && key_fixed && val_fixed;
                 if skip_count {
-                    writeln!(self.output, "{}for (const [{}, {}] of {}) {{", spaces, key_var, val_var, value).unwrap();
+                    writeln!(
+                        self.output,
+                        "{}for (const [{}, {}] of {}) {{",
+                        spaces, key_var, val_var, value
+                    )
+                    .unwrap();
                     self.encode_value_to_buf_depth(&key_var, &k.node, indent + 1, buf_var, false, depth + 1);
                     self.encode_value_to_buf_depth(&val_var, &v.node, indent + 1, buf_var, false, depth + 1);
                     writeln!(self.output, "{}}}", spaces).unwrap();
                 } else {
                     writeln!(self.output, "{}__rt.encodeVarint({}.size, {});", spaces, value, buf_var).unwrap();
-                    writeln!(self.output, "{}for (const [{}, {}] of {}) {{", spaces, key_var, val_var, value).unwrap();
+                    writeln!(
+                        self.output,
+                        "{}for (const [{}, {}] of {}) {{",
+                        spaces, key_var, val_var, value
+                    )
+                    .unwrap();
                     self.encode_value_to_buf_depth(&key_var, &k.node, indent + 1, buf_var, false, depth + 1);
                     self.encode_value_to_buf_depth(&val_var, &v.node, indent + 1, buf_var, false, depth + 1);
                     writeln!(self.output, "{}}}", spaces).unwrap();

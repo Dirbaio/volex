@@ -1,7 +1,8 @@
 use std::io::{Read, Write};
 
+use ariadne::{Color, Label, Report, ReportKind, Source};
 use clap::Parser;
-use volexc::{checker, codegen_go, codegen_rust, codegen_typescript, parser};
+use volexc::{CompileError, Language, codegen_go, codegen_rust, codegen_typescript};
 
 #[derive(Parser)]
 #[command(name = "volex")]
@@ -16,7 +17,7 @@ struct Cli {
     output: String,
 
     /// Target language
-    #[arg(long, value_enum, default_value = "rust")]
+    #[arg(long, default_value = "rust")]
     lang: Language,
 
     /// Package name for Go output
@@ -26,13 +27,6 @@ struct Cli {
     /// Serde derive mode for Rust output
     #[arg(long, value_enum, default_value = "never")]
     serde: codegen_rust::SerdeMode,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-enum Language {
-    Rust,
-    Go,
-    Typescript,
 }
 
 fn main() {
@@ -55,26 +49,13 @@ fn main() {
 
     let input_name = if cli.input == "-" { "<stdin>" } else { &cli.input };
 
-    let schema = match parser::parse(&src) {
+    let schema = match volexc::compile(&src, cli.lang) {
         Ok(schema) => schema,
         Err(errs) => {
-            parser::print_errors(input_name, &src, errs);
+            print_errors(input_name, &src, errs);
             std::process::exit(1);
         }
     };
-
-    // Convert CLI language to checker language
-    let checker_lang = match cli.lang {
-        Language::Rust => checker::Language::Rust,
-        Language::Go => checker::Language::Go,
-        Language::Typescript => checker::Language::Typescript,
-    };
-
-    let errors = checker::check(&schema, checker_lang);
-    if !errors.is_empty() {
-        checker::print_errors(input_name, &src, errors);
-        std::process::exit(1);
-    }
 
     let code = match cli.lang {
         Language::Rust => codegen_rust::generate(&schema, cli.serde),
@@ -91,5 +72,37 @@ fn main() {
             eprintln!("Error writing file '{}': {}", cli.output, e);
             std::process::exit(1);
         });
+    }
+}
+
+fn print_errors(filename: &str, src: &str, errs: Vec<CompileError>) {
+    for err in errs {
+        let err_span = err.span.start..err.span.end;
+        let mut report = Report::build(ReportKind::Error, (filename, err_span.clone())).with_message(&err.message);
+
+        if !err.labels.is_empty() {
+            // Add labels
+            for (span, label_msg, color) in err.labels {
+                report = report.with_label(
+                    Label::new((filename, span.start..span.end))
+                        .with_message(label_msg)
+                        .with_color(color),
+                );
+            }
+        } else {
+            // Add a simple label for errors without labels
+            report = report.with_label(
+                Label::new((filename, err_span))
+                    .with_message("Error here")
+                    .with_color(Color::Red),
+            );
+        }
+
+        // Add notes
+        for note in err.notes {
+            report = report.with_note(note);
+        }
+
+        report.finish().print((filename, Source::from(src))).unwrap();
     }
 }

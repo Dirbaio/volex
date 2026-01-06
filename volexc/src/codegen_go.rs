@@ -819,7 +819,11 @@ impl<'a> GoCodeGenerator<'a> {
         // Use indent to create unique variable names to avoid shadowing in nested arrays
         let count_var = format!("count{}", indent);
         let idx_var = format!("i{}", indent);
-        let arr_var = if optional { format!("arr{}", indent) } else { target.to_string() };
+        let arr_var = if optional {
+            format!("arr{}", indent)
+        } else {
+            target.to_string()
+        };
 
         // Decode array length
         writeln!(self.output, "{}{}, err := __rt.DecodeLEB128(buf)", tabs, count_var).unwrap();
@@ -828,12 +832,27 @@ impl<'a> GoCodeGenerator<'a> {
         writeln!(self.output, "{}}}", tabs).unwrap();
 
         if optional {
-            writeln!(self.output, "{}{} := make([]{}, {})", tabs, arr_var, elem_go_type, count_var).unwrap();
+            writeln!(
+                self.output,
+                "{}{} := make([]{}, {})",
+                tabs, arr_var, elem_go_type, count_var
+            )
+            .unwrap();
         } else {
-            writeln!(self.output, "{}{} = make([]{}, {})", tabs, target, elem_go_type, count_var).unwrap();
+            writeln!(
+                self.output,
+                "{}{} = make([]{}, {})",
+                tabs, target, elem_go_type, count_var
+            )
+            .unwrap();
         }
 
-        writeln!(self.output, "{}for {} := uint64(0); {} < {}; {}++ {{", tabs, idx_var, idx_var, count_var, idx_var).unwrap();
+        writeln!(
+            self.output,
+            "{}for {} := uint64(0); {} < {}; {}++ {{",
+            tabs, idx_var, idx_var, count_var, idx_var
+        )
+        .unwrap();
         let item_target = format!("{}[{}]", arr_var, idx_var);
         self.decode_value_inline(&item_target, elem_ty, indent + 1, parent_type);
         writeln!(self.output, "{}}}", tabs).unwrap();
@@ -860,7 +879,11 @@ impl<'a> GoCodeGenerator<'a> {
         let key_var = format!("k{}", indent);
         let val_var = format!("v{}", indent);
         let count_var = format!("count{}", indent);
-        let map_var = if optional { format!("m{}", indent) } else { target.to_string() };
+        let map_var = if optional {
+            format!("m{}", indent)
+        } else {
+            target.to_string()
+        };
 
         // Decode map length
         writeln!(self.output, "{}{}, err := __rt.DecodeLEB128(buf)", tabs, count_var).unwrap();
@@ -884,7 +907,12 @@ impl<'a> GoCodeGenerator<'a> {
             .unwrap();
         }
 
-        writeln!(self.output, "{}for i{} := uint64(0); i{} < {}; i{}++ {{", tabs, indent, indent, count_var, indent).unwrap();
+        writeln!(
+            self.output,
+            "{}for i{} := uint64(0); i{} < {}; i{}++ {{",
+            tabs, indent, indent, count_var, indent
+        )
+        .unwrap();
         writeln!(self.output, "{}\tvar {} {}", tabs, key_var, key_go_type).unwrap();
         writeln!(self.output, "{}\tvar {} {}", tabs, val_var, val_go_type).unwrap();
         self.decode_value_inline(&key_var, key_ty, indent + 1, parent_type);
@@ -1100,17 +1128,36 @@ impl<'a> GoCodeGenerator<'a> {
         // Use indent to create unique variable names to avoid shadowing in nested arrays
         let count_var = format!("count{}", indent);
         let idx_var = format!("i{}", indent);
-        let arr_var = if optional { format!("arr{}", indent) } else { target.to_string() };
+        let arr_var = if optional {
+            format!("arr{}", indent)
+        } else {
+            target.to_string()
+        };
 
         if let Some(elem_size) = self.schema.fixed_size(elem_ty) {
             // Fixed-size elements: no count prefix, infer count from length / element_size
             writeln!(self.output, "{}{} := {} / {}", tabs, count_var, length_var, elem_size).unwrap();
             if optional {
-                writeln!(self.output, "{}{} := make([]{}, {})", tabs, arr_var, elem_go_type, count_var).unwrap();
+                writeln!(
+                    self.output,
+                    "{}{} := make([]{}, {})",
+                    tabs, arr_var, elem_go_type, count_var
+                )
+                .unwrap();
             } else {
-                writeln!(self.output, "{}{} = make([]{}, {})", tabs, target, elem_go_type, count_var).unwrap();
+                writeln!(
+                    self.output,
+                    "{}{} = make([]{}, {})",
+                    tabs, target, elem_go_type, count_var
+                )
+                .unwrap();
             }
-            writeln!(self.output, "{}for {} := uint64(0); {} < {}; {}++ {{", tabs, idx_var, idx_var, count_var, idx_var).unwrap();
+            writeln!(
+                self.output,
+                "{}for {} := uint64(0); {} < {}; {}++ {{",
+                tabs, idx_var, idx_var, count_var, idx_var
+            )
+            .unwrap();
             let item_target = format!("{}[{}]", arr_var, idx_var);
             self.decode_value_inline(&item_target, elem_ty, indent + 1, parent_type);
             writeln!(self.output, "{}}}", tabs).unwrap();
@@ -1125,11 +1172,26 @@ impl<'a> GoCodeGenerator<'a> {
             writeln!(self.output, "{}\treturn {}{{}}, err", tabs, parent_type).unwrap();
             writeln!(self.output, "{}}}", tabs).unwrap();
             if optional {
-                writeln!(self.output, "{}{} := make([]{}, {})", tabs, arr_var, elem_go_type, count_var).unwrap();
+                writeln!(
+                    self.output,
+                    "{}{} := make([]{}, {})",
+                    tabs, arr_var, elem_go_type, count_var
+                )
+                .unwrap();
             } else {
-                writeln!(self.output, "{}{} = make([]{}, {})", tabs, target, elem_go_type, count_var).unwrap();
+                writeln!(
+                    self.output,
+                    "{}{} = make([]{}, {})",
+                    tabs, target, elem_go_type, count_var
+                )
+                .unwrap();
             }
-            writeln!(self.output, "{}for {} := uint64(0); {} < {}; {}++ {{", tabs, idx_var, idx_var, count_var, idx_var).unwrap();
+            writeln!(
+                self.output,
+                "{}for {} := uint64(0); {} < {}; {}++ {{",
+                tabs, idx_var, idx_var, count_var, idx_var
+            )
+            .unwrap();
             let item_target = format!("{}[{}]", arr_var, idx_var);
             self.decode_value_inline(&item_target, elem_ty, indent + 1, parent_type);
             writeln!(self.output, "{}}}", tabs).unwrap();
@@ -1158,7 +1220,11 @@ impl<'a> GoCodeGenerator<'a> {
         let val_var = format!("v{}", indent);
         let count_var = format!("count{}", indent);
         let idx_var = format!("i{}", indent);
-        let map_var = if optional { format!("m{}", indent) } else { target.to_string() };
+        let map_var = if optional {
+            format!("m{}", indent)
+        } else {
+            target.to_string()
+        };
 
         let key_fixed = {
             let this = &self;
@@ -1200,7 +1266,12 @@ impl<'a> GoCodeGenerator<'a> {
                 )
                 .unwrap();
             }
-            writeln!(self.output, "{}for {} := uint64(0); {} < {}; {}++ {{", tabs, idx_var, idx_var, count_var, idx_var).unwrap();
+            writeln!(
+                self.output,
+                "{}for {} := uint64(0); {} < {}; {}++ {{",
+                tabs, idx_var, idx_var, count_var, idx_var
+            )
+            .unwrap();
             writeln!(self.output, "{}\tvar {} {}", tabs, key_var, key_go_type).unwrap();
             writeln!(self.output, "{}\tvar {} {}", tabs, val_var, val_go_type).unwrap();
             self.decode_value_inline(&key_var, key_ty, indent + 1, parent_type);
@@ -1232,7 +1303,12 @@ impl<'a> GoCodeGenerator<'a> {
                 )
                 .unwrap();
             }
-            writeln!(self.output, "{}for {} := uint64(0); {} < {}; {}++ {{", tabs, idx_var, idx_var, count_var, idx_var).unwrap();
+            writeln!(
+                self.output,
+                "{}for {} := uint64(0); {} < {}; {}++ {{",
+                tabs, idx_var, idx_var, count_var, idx_var
+            )
+            .unwrap();
             writeln!(self.output, "{}\tvar {} {}", tabs, key_var, key_go_type).unwrap();
             writeln!(self.output, "{}\tvar {} {}", tabs, val_var, val_go_type).unwrap();
             self.decode_value_inline(&key_var, key_ty, indent + 1, parent_type);

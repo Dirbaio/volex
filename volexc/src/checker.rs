@@ -1,39 +1,14 @@
 use std::collections::HashMap;
 
-use ariadne::{Color, Label, Report, ReportKind, Source};
+use ariadne::Color;
 
 use crate::schema::*;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Language {
-    Rust,
-    Go,
-    Typescript,
-}
-
-pub struct CheckError {
-    pub message: String,
-    pub labels: Vec<(Span, String, Color)>,
-}
-
-impl CheckError {
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            labels: Vec::new(),
-        }
-    }
-
-    fn label(mut self, span: Span, message: impl Into<String>, color: Color) -> Self {
-        self.labels.push((span, message.into(), color));
-        self
-    }
-}
+use crate::{CompileError, Language};
 
 struct Checker<'a> {
     schema: &'a Schema,
     language: Language,
-    errors: Vec<CheckError>,
+    errors: Vec<CompileError>,
 }
 
 impl<'a> Checker<'a> {
@@ -45,7 +20,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check(mut self) -> Vec<CheckError> {
+    fn check(mut self) -> Vec<CompileError> {
         self.check_duplicate_definitions();
 
         // Check each item
@@ -73,7 +48,7 @@ impl<'a> Checker<'a> {
         // Check for duplicate definitions
         for (name, items) in &definitions {
             if items.len() > 1 {
-                let mut err = CheckError::new(format!("duplicate definition of `{}`", name));
+                let mut err = CompileError::new(format!("duplicate definition of `{}`", name));
                 for (i, item) in items.iter().enumerate() {
                     let label = if i == 0 { "first defined here" } else { "redefined here" };
                     let color = if i == 0 { Color::Blue } else { Color::Red };
@@ -90,7 +65,7 @@ impl<'a> Checker<'a> {
         for field in &s.fields {
             if let Some(prev) = field_names.get(field.name.as_str()) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate field `{}` in struct `{}`",
                         field.name.node, s.name.node
                     ))
@@ -112,7 +87,7 @@ impl<'a> Checker<'a> {
         for field in &m.fields {
             if let Some(prev) = field_names.get(field.name.as_str()) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate field `{}` in message `{}`",
                         field.name.node, m.name.node
                     ))
@@ -130,7 +105,7 @@ impl<'a> Checker<'a> {
             // Check for zero index (reserved for termination)
             if field.index.node == 0 {
                 self.errors.push(
-                    CheckError::new(format!("index 0 is reserved in message `{}`", m.name.node)).label(
+                    CompileError::new(format!("index 0 is reserved in message `{}`", m.name.node)).label(
                         field.index.span.clone(),
                         "indices must be >= 1",
                         Color::Red,
@@ -140,7 +115,7 @@ impl<'a> Checker<'a> {
 
             if let Some(prev) = field_indices.get(&field.index.node) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate index {} in message `{}`",
                         field.index.node, m.name.node
                     ))
@@ -162,7 +137,7 @@ impl<'a> Checker<'a> {
         for variant in &e.variants {
             if let Some(prev) = variant_names.get(variant.name.as_str()) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate variant `{}` in enum `{}`",
                         variant.name.node, e.name.node
                     ))
@@ -179,7 +154,7 @@ impl<'a> Checker<'a> {
         for variant in &e.variants {
             if let Some(prev) = variant_indices.get(&variant.index.node) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate index {} in enum `{}`",
                         variant.index.node, e.name.node
                     ))
@@ -198,7 +173,7 @@ impl<'a> Checker<'a> {
         for variant in &u.variants {
             if let Some(prev) = variant_names.get(variant.name.as_str()) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate variant `{}` in union `{}`",
                         variant.name.node, u.name.node
                     ))
@@ -216,7 +191,7 @@ impl<'a> Checker<'a> {
             // Check for zero index (reserved for termination in wire format)
             if variant.index.node == 0 {
                 self.errors.push(
-                    CheckError::new(format!("index 0 is reserved in union `{}`", u.name.node)).label(
+                    CompileError::new(format!("index 0 is reserved in union `{}`", u.name.node)).label(
                         variant.index.span.clone(),
                         "indices must be >= 1",
                         Color::Red,
@@ -226,7 +201,7 @@ impl<'a> Checker<'a> {
 
             if let Some(prev) = variant_indices.get(&variant.index.node) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate index {} in union `{}`",
                         variant.index.node, u.name.node
                     ))
@@ -250,7 +225,7 @@ impl<'a> Checker<'a> {
         for method in &s.methods {
             if let Some(prev) = method_names.get(method.name.as_str()) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate method `{}` in service `{}`",
                         method.name.node, s.name.node
                     ))
@@ -268,7 +243,7 @@ impl<'a> Checker<'a> {
             // Check for zero index
             if method.index.node == 0 {
                 self.errors.push(
-                    CheckError::new(format!("index 0 is reserved in service `{}`", s.name.node)).label(
+                    CompileError::new(format!("index 0 is reserved in service `{}`", s.name.node)).label(
                         method.index.span.clone(),
                         "indices must be >= 1",
                         Color::Red,
@@ -278,7 +253,7 @@ impl<'a> Checker<'a> {
 
             if let Some(prev) = method_indices.get(&method.index.node) {
                 self.errors.push(
-                    CheckError::new(format!(
+                    CompileError::new(format!(
                         "duplicate index {} in service `{}`",
                         method.index.node, s.name.node
                     ))
@@ -306,7 +281,7 @@ impl<'a> Checker<'a> {
             Type::Named(name) => match self.schema.item(name.as_str()) {
                 None => {
                     self.errors
-                        .push(CheckError::new(format!("undefined type `{}`", name)).label(
+                        .push(CompileError::new(format!("undefined type `{}`", name)).label(
                             ty.span.clone(),
                             "not found",
                             Color::Red,
@@ -315,7 +290,7 @@ impl<'a> Checker<'a> {
                 Some(item) => {
                     if matches!(item.node, Item::Service(_)) {
                         self.errors
-                            .push(CheckError::new(format!("services cannot be used as types")).label(
+                            .push(CompileError::new(format!("services cannot be used as types")).label(
                                 ty.span.clone(),
                                 "service used as type",
                                 Color::Red,
@@ -352,7 +327,7 @@ impl<'a> Checker<'a> {
     fn check_map_key_type(&mut self, key_ty: &Spanned<Type>) {
         let mut error_chain = Vec::new();
         if let Some(reason) = self.validate_map_key_type(&key_ty.node, key_ty.span.clone(), &mut error_chain) {
-            let mut err = CheckError::new(format!("invalid map key type: {}", reason));
+            let mut err = CompileError::new(format!("invalid map key type: {}", reason));
 
             // Add labels showing the chain of why this type is invalid
             for (span, msg, color) in error_chain {
@@ -545,23 +520,6 @@ fn item_name_span(item: &Spanned<Item>) -> Span {
     }
 }
 
-pub fn check(schema: &Schema, language: Language) -> Vec<CheckError> {
+pub fn check(schema: &Schema, language: Language) -> Vec<CompileError> {
     Checker::new(schema, language).check()
-}
-
-pub fn print_errors(filename: &str, src: &str, errors: Vec<CheckError>) {
-    for err in errors {
-        let first_span = err.labels.first().map(|(s, _, _)| s.start..s.end).unwrap_or(0..0);
-        let mut report = Report::build(ReportKind::Error, (filename, first_span)).with_message(&err.message);
-
-        for (span, message, color) in err.labels {
-            report = report.with_label(
-                Label::new((filename, span.start..span.end))
-                    .with_message(message)
-                    .with_color(color),
-            );
-        }
-
-        report.finish().print((filename, Source::from(src))).unwrap();
-    }
 }

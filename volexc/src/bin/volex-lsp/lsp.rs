@@ -2,13 +2,12 @@ use std::collections::HashMap;
 
 use lsp_types::*;
 use volexc::schema::*;
-use volexc::{checker, parser};
+use volexc::{CompileError, Language};
 
 pub struct Document {
     pub text: String,
     pub schema: Option<Schema>,
-    pub parse_errors: Vec<parser::ParseError>,
-    pub check_errors: Vec<checker::CheckError>,
+    pub errors: Vec<CompileError>,
 }
 
 pub struct VolexLsp {
@@ -40,27 +39,12 @@ impl VolexLsp {
     }
 
     fn update_document(&mut self, uri: Url, text: String) {
-        let (schema, parse_errors) = match parser::parse(&text) {
+        let (schema, errors) = match volexc::compile(&text, Language::Rust) {
             Ok(schema) => (Some(schema), Vec::new()),
             Err(errs) => (None, errs),
         };
 
-        let check_errors = if let Some(ref schema) = schema {
-            // Check with Rust as default language
-            checker::check(schema, checker::Language::Rust)
-        } else {
-            Vec::new()
-        };
-
-        self.documents.insert(
-            uri.clone(),
-            Document {
-                text,
-                schema,
-                parse_errors,
-                check_errors,
-            },
-        );
+        self.documents.insert(uri.clone(), Document { text, schema, errors });
     }
 
     pub fn diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
@@ -70,43 +54,30 @@ impl VolexLsp {
 
         let mut diagnostics = Vec::new();
 
-        // Add parse errors
-        for error in &doc.parse_errors {
+        // Add all errors (parse and check)
+        for error in &doc.errors {
             let range = span_to_range(&doc.text, error.span);
-            diagnostics.push(Diagnostic {
-                range,
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("volex".to_string()),
-                message: error.message.clone(),
-                related_information: None,
-                tags: None,
-                data: None,
-            });
-        }
 
-        // Add check errors
-        for error in &doc.check_errors {
-            for (span, label_msg, _color) in &error.labels {
-                let range = span_to_range(&doc.text, *span);
+            // If there are labels, create a diagnostic for each label with more context
+            if !error.labels.is_empty() {
+                for (span, label_msg, _color) in &error.labels {
+                    let label_range = span_to_range(&doc.text, *span);
+                    diagnostics.push(Diagnostic {
+                        range: label_range,
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        code: None,
+                        code_description: None,
+                        source: Some("volex".to_string()),
+                        message: format!("{}: {}", error.message, label_msg),
+                        related_information: None,
+                        tags: None,
+                        data: None,
+                    });
+                }
+            } else {
+                // No labels, just use the error span
                 diagnostics.push(Diagnostic {
                     range,
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    code: None,
-                    code_description: None,
-                    source: Some("volex".to_string()),
-                    message: format!("{}: {}", error.message, label_msg),
-                    related_information: None,
-                    tags: None,
-                    data: None,
-                });
-            }
-
-            // If no labels, add a diagnostic at the start of the file
-            if error.labels.is_empty() {
-                diagnostics.push(Diagnostic {
-                    range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                     severity: Some(DiagnosticSeverity::ERROR),
                     code: None,
                     code_description: None,
