@@ -4,6 +4,10 @@
   "description": "Language support for Volex schema files",
   "version": "0.1.0",
   "publisher": "volex",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dirbaio/volex"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -54,14 +58,16 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "compile": "npm run esbuild-base -- --sourcemap",
+    "watch": "npm run esbuild-base -- --sourcemap --watch",
     "pretest": "npm run compile"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.75.0",
+    "esbuild": "^0.27.2",
     "typescript": "^5.0.0"
   },
   "dependencies": {

@@ -6,13 +6,19 @@ import {
 } from "vscode-languageclient/node";
 
 let client: LanguageClient | undefined;
+let outputChannel: vscode.OutputChannel | undefined;
 
 function startLanguageServer() {
+  if (!outputChannel) {
+    outputChannel = vscode.window.createOutputChannel("Volex Language Server");
+  }
+
   // Get the LSP server path from configuration or use PATH
   const config = vscode.workspace.getConfiguration("volex");
   const serverPath = config.get<string>("lspPath") || "volex-lsp";
 
-  console.log(`Using LSP server at: ${serverPath}`);
+  outputChannel.appendLine(`Starting Volex Language Server...`);
+  outputChannel.appendLine(`Using LSP server at: ${serverPath}`);
 
   // Define the server options
   const serverOptions: ServerOptions = {
@@ -32,6 +38,7 @@ function startLanguageServer() {
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.vol"),
     },
+    outputChannel: outputChannel,
   };
 
   // Create and start the language client
@@ -43,11 +50,19 @@ function startLanguageServer() {
   );
 
   // Start the client
-  client.start();
+  client.start().catch((error) => {
+    outputChannel?.appendLine(`Failed to start language server: ${error}`);
+    vscode.window.showErrorMessage(
+      `Failed to start Volex Language Server: ${error.message}`
+    );
+  });
+
+  outputChannel.appendLine(`Language server started.`);
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log("Volex extension is now active");
+  outputChannel = vscode.window.createOutputChannel("Volex Language Server");
+  outputChannel.appendLine("Volex extension is now active");
 
   startLanguageServer();
 
