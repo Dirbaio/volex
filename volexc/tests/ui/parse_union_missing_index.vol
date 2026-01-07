@@ -1,0 +1,17 @@
+// Union variant missing index - should continue parsing next definitions
+union Result {
+    Ok(u32) = ;
+    Err(string) = 2;
+}
+
+// This should still be parsed
+enum Priority {
+    Low = 0;
+    High = 1;
+}
+
+// This has an error too
+struct Task {
+    result: Result
+    priority: Priority;
+}

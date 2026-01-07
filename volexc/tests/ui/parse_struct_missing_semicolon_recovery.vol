@@ -1,0 +1,19 @@
+// Struct field missing semicolon - should recover and continue parsing next definitions
+struct Point {
+    x: f32
+    y: f32;
+    z: f32;
+}
+
+// This should still be parsed
+struct Line {
+    start: Point;
+    end: Point;
+}
+
+// This has an error too - should be reported
+enum Color {
+    Red 0;
+    Green = 1;
+    Blue = 2;
+}

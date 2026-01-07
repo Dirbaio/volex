@@ -1,0 +1,9 @@
+Error: found '0' expected '='
+   ╭─[ parse_enum_missing_equals.vol:3:12 ]
+   │
+ 3 │     Active 0;
+   │            ┬  
+   │            ╰── Unexpected '0'
+   │ 
+   │ Note: Expected one of: '='
+───╯

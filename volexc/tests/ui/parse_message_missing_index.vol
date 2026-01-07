@@ -1,0 +1,17 @@
+// Message field missing index - should recover and continue parsing next definitions
+message Foo {
+    a: u8;
+    b: u8 = 2;
+}
+
+// This should still be parsed
+message Bar {
+    x: i32 = 1;
+    y: i32 = 2;
+}
+
+// This has an error too - should be reported
+union Result {
+    Ok: Bar 0;
+    Error: string = 1;
+}

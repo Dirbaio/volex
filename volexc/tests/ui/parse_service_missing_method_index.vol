@@ -1,0 +1,8 @@
+// Service method missing index - should recover and parse next method
+struct Request {}
+struct Response {}
+
+service Api {
+    fn get(Request) -> Response = ;
+    fn list(Request) -> Response = 2;
+}

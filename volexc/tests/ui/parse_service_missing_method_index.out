@@ -1,0 +1,9 @@
+Error: found ';' expected integer
+   ╭─[ parse_service_missing_method_index.vol:6:35 ]
+   │
+ 6 │     fn get(Request) -> Response = ;
+   │                                   ┬  
+   │                                   ╰── Unexpected ';'
+   │ 
+   │ Note: Expected one of: integer
+───╯

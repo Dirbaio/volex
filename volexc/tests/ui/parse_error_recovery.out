@@ -1,0 +1,9 @@
+Error: found 'y' expected ';'
+   ╭─[ parse_error_recovery.vol:4:5 ]
+   │
+ 4 │     y: f32;
+   │     ┬  
+   │     ╰── Unexpected 'y'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

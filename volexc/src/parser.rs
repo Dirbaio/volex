@@ -4,6 +4,17 @@ use chumsky::prelude::*;
 
 use crate::schema::{Spanned, *};
 
+fn dummy_span<T>(t: T) -> Spanned<T> {
+    Spanned::new(
+        t,
+        Span {
+            start: 0,
+            end: 0,
+            context: (),
+        },
+    )
+}
+
 fn spanned<'src, T, I, E>(t: T, e: &mut MapExtra<'src, '_, I, E>) -> Spanned<T>
 where
     I: Input<'src, Span = Span>,
@@ -214,22 +225,18 @@ where
 
         let array = ty
             .clone()
-            .map_with(spanned)
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(|inner| Type::Array(Box::new(inner)));
 
         let map = ty
             .clone()
-            .map_with(spanned)
             .then_ignore(just(Token::Colon))
-            .then(ty.clone().map_with(spanned))
+            .then(ty.clone())
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
             .map(|(k, v)| Type::Map(Box::new(k), Box::new(v)));
 
-        choice((primitive, array, map, named))
+        choice((primitive, array, map, named)).map_with(spanned)
     });
-
-    let spanned_ty = ty.map_with(spanned);
 
     // Struct field: name: Type;  or  name?: Type;
     let struct_field = ident
@@ -237,14 +244,26 @@ where
         .map_with(spanned)
         .then(just(Token::Question).or_not())
         .then_ignore(just(Token::Colon))
-        .then(spanned_ty.clone())
+        .then(ty.clone())
         .then_ignore(just(Token::Semicolon))
         .map(|((name, opt), ty)| StructField {
             name,
             ty,
             optional: opt.is_some(),
         })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(via_parser(
+            none_of(Token::RBrace)
+                .repeated()
+                .then_ignore(just(Token::Semicolon))
+                .map(|_| {
+                    dummy_span(StructField {
+                        name: dummy_span("".to_string()),
+                        ty: dummy_span(Type::Bool),
+                        optional: false,
+                    })
+                }),
+        ));
 
     // Message field: name: Type = index;  or  name?: Type = index;
     let message_field = ident
@@ -252,7 +271,7 @@ where
         .map_with(spanned)
         .then(just(Token::Question).or_not())
         .then_ignore(just(Token::Colon))
-        .then(spanned_ty.clone())
+        .then(ty.clone())
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
         .then_ignore(just(Token::Semicolon))
@@ -262,7 +281,14 @@ where
             index,
             optional: opt.is_some(),
         })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().ignored(),
+            just(Token::Semicolon)
+                .ignored()
+                .or(just(Token::RBrace).rewind().ignored())
+                .or(end()),
+        ));
 
     // Enum variant: Name = index;
     let enum_variant = ident
@@ -272,15 +298,21 @@ where
         .then(int.clone().map_with(spanned))
         .then_ignore(just(Token::Semicolon))
         .map(|(name, index)| EnumVariant { name, index })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().ignored(),
+            just(Token::Semicolon)
+                .ignored()
+                .or(just(Token::RBrace).rewind().ignored())
+                .or(end()),
+        ));
 
     // Union variant: Name = index;  or  Name(Type) = index;
     let union_variant = ident
         .clone()
         .map_with(spanned)
         .then(
-            spanned_ty
-                .clone()
+            ty.clone()
                 .delimited_by(just(Token::LParen), just(Token::RParen))
                 .or_not(),
         )
@@ -288,7 +320,14 @@ where
         .then(int.clone().map_with(spanned))
         .then_ignore(just(Token::Semicolon))
         .map(|((name, ty), index)| UnionVariant { name, ty, index })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().ignored(),
+            just(Token::Semicolon)
+                .ignored()
+                .or(just(Token::RBrace).rewind().ignored())
+                .or(end()),
+        ));
 
     // struct Name { fields }
     let struct_def = just(Token::Struct)
@@ -342,22 +381,17 @@ where
     let service_response = just(Token::Arrow).ignore_then(choice((
         // -> stream Type
         just(Token::Stream)
-            .ignore_then(spanned_ty.clone())
+            .ignore_then(ty.clone())
             .map_with(|ty, e| Spanned::new(ServiceResponse::Stream(ty.node), e.span())),
         // -> Type
-        spanned_ty
-            .clone()
+        ty.clone()
             .map_with(|ty, e| Spanned::new(ServiceResponse::Unary(ty.node), e.span())),
     )));
 
     // Service method: fn name(Type) -> Type = index;
     let service_method = just(Token::Fn)
         .ignore_then(ident.clone().map_with(spanned))
-        .then(
-            spanned_ty
-                .clone()
-                .delimited_by(just(Token::LParen), just(Token::RParen)),
-        )
+        .then(ty.clone().delimited_by(just(Token::LParen), just(Token::RParen)))
         .then(service_response)
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
@@ -368,7 +402,14 @@ where
             response,
             index,
         })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().ignored(),
+            just(Token::Semicolon)
+                .ignored()
+                .or(just(Token::RBrace).rewind().ignored())
+                .or(end()),
+        ));
 
     // service Name { methods }
     let service_def = just(Token::Service)
@@ -390,91 +431,89 @@ where
         .map(|items| Schema { items })
 }
 
-pub fn parse(src: &str) -> Result<Schema, Vec<crate::CompileError>> {
-    let (tokens, lex_errs) = lexer().parse(src).into_output_errors();
+fn convert_lex_error(e: Rich<char, Span>) -> crate::CompileError {
+    let mut err = crate::CompileError {
+        span: *e.span(),
+        message: e.to_string(),
+        labels: vec![],
+        notes: vec![],
+    };
 
-    if !lex_errs.is_empty() {
-        return Err(lex_errs
-            .into_iter()
-            .map(|e| {
-                let mut err = crate::CompileError {
-                    span: *e.span(),
-                    message: e.to_string(),
-                    labels: vec![],
-                    notes: vec![],
-                };
+    let label_msg = e
+        .found()
+        .map(|c| format!("Unexpected '{}'", c))
+        .unwrap_or_else(|| "Unexpected end of input".to_string());
+    err.labels.push((*e.span(), label_msg, ariadne::Color::Red));
 
-                // Add a label with what was found
-                let label_msg = e
-                    .found()
-                    .map(|c| format!("Unexpected '{}'", c))
-                    .unwrap_or_else(|| "Unexpected end of input".to_string());
-                err.labels.push((*e.span(), label_msg, ariadne::Color::Red));
+    let expected: Vec<_> = e
+        .expected()
+        .filter_map(|p| match p {
+            chumsky::error::RichPattern::Token(t) => Some(format!("'{}'", &**t)),
+            chumsky::error::RichPattern::Label(l) => Some(l.to_string()),
+            chumsky::error::RichPattern::EndOfInput => Some("end of input".to_string()),
+            _ => None,
+        })
+        .collect();
 
-                // Add expected tokens as notes
-                let expected: Vec<_> = e
-                    .expected()
-                    .filter_map(|p| match p {
-                        chumsky::error::RichPattern::Token(t) => Some(format!("'{}'", &**t)),
-                        chumsky::error::RichPattern::Label(l) => Some(l.to_string()),
-                        chumsky::error::RichPattern::EndOfInput => Some("end of input".to_string()),
-                        _ => None,
-                    })
-                    .collect();
-
-                if !expected.is_empty() {
-                    err.notes.push(format!("Expected one of: {}", expected.join(", ")));
-                }
-
-                err
-            })
-            .collect());
+    if !expected.is_empty() {
+        err.notes.push(format!("Expected one of: {}", expected.join(", ")));
     }
 
-    let tokens = tokens.unwrap();
+    err
+}
+
+fn convert_parse_error(e: Rich<Token, Span>) -> crate::CompileError {
+    let mut err = crate::CompileError {
+        span: *e.span(),
+        message: e.to_string(),
+        labels: vec![],
+        notes: vec![],
+    };
+
+    let label_msg = e
+        .found()
+        .map(|t| format!("Unexpected '{}'", t))
+        .unwrap_or_else(|| "Unexpected end of input".to_string());
+    err.labels.push((*e.span(), label_msg, ariadne::Color::Red));
+
+    let expected: Vec<_> = e
+        .expected()
+        .filter_map(|p| match p {
+            chumsky::error::RichPattern::Token(t) => Some(format!("'{}'", &**t)),
+            chumsky::error::RichPattern::Label(l) => Some(l.to_string()),
+            chumsky::error::RichPattern::EndOfInput => Some("end of input".to_string()),
+            _ => None,
+        })
+        .collect();
+
+    if !expected.is_empty() {
+        err.notes.push(format!("Expected one of: {}", expected.join(", ")));
+    }
+
+    err
+}
+
+/// Parse a Volex schema from source code.
+///
+/// Returns both a partial schema (if any was parsed) and all errors encountered.
+/// The partial schema can be used for LSP features even when there are syntax errors.
+pub fn parse(src: &str) -> (Option<Schema>, Vec<crate::CompileError>) {
+    let (tokens, lex_errs) = lexer().parse(src).into_output_errors();
+
+    let mut errors: Vec<_> = lex_errs.into_iter().map(convert_lex_error).collect();
+
+    let tokens = match tokens {
+        Some(t) => t,
+        None => return (None, errors),
+    };
+
     let len = src.len();
 
     let (schema, parse_errs) = parser()
         .parse(tokens.as_slice().map((len..len).into(), |(t, s)| (t, s)))
         .into_output_errors();
 
-    if !parse_errs.is_empty() {
-        return Err(parse_errs
-            .into_iter()
-            .map(|e| {
-                let mut err = crate::CompileError {
-                    span: *e.span(),
-                    message: e.to_string(),
-                    labels: vec![],
-                    notes: vec![],
-                };
+    errors.extend(parse_errs.into_iter().map(convert_parse_error));
 
-                // Add a label with what was found
-                let label_msg = e
-                    .found()
-                    .map(|t| format!("Unexpected '{}'", t))
-                    .unwrap_or_else(|| "Unexpected end of input".to_string());
-                err.labels.push((*e.span(), label_msg, ariadne::Color::Red));
-
-                // Add expected tokens as notes
-                let expected: Vec<_> = e
-                    .expected()
-                    .filter_map(|p| match p {
-                        chumsky::error::RichPattern::Token(t) => Some(format!("'{}'", &**t)),
-                        chumsky::error::RichPattern::Label(l) => Some(l.to_string()),
-                        chumsky::error::RichPattern::EndOfInput => Some("end of input".to_string()),
-                        _ => None,
-                    })
-                    .collect();
-
-                if !expected.is_empty() {
-                    err.notes.push(format!("Expected one of: {}", expected.join(", ")));
-                }
-
-                err
-            })
-            .collect());
-    }
-
-    Ok(schema.unwrap())
+    (schema, errors)
 }

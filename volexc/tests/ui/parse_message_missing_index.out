@@ -1,0 +1,9 @@
+Error: found ';' expected '='
+   ╭─[ parse_message_missing_index.vol:3:10 ]
+   │
+ 3 │     a: u8;
+   │          ┬  
+   │          ╰── Unexpected ';'
+   │ 
+   │ Note: Expected one of: '='
+───╯

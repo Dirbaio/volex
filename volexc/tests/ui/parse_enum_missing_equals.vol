@@ -1,0 +1,18 @@
+// Enum variant missing equals - should continue parsing next definitions
+enum Status {
+    Active 0;
+    Inactive = 1;
+    Paused = 2;
+}
+
+// This should still be parsed
+struct Config {
+    status: Status;
+    enabled: bool;
+}
+
+// This has an error too
+message Settings {
+    name: string;
+    value: i32 = 2;
+}
