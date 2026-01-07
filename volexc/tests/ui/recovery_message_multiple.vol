@@ -1,0 +1,7 @@
+// Multiple errors in same message - recovery should report all
+message Request {
+    id: u32 = 1
+    name: string = 2;
+    count: u32 = 3
+    data: string = 4;
+}

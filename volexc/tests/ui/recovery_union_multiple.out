@@ -1,0 +1,18 @@
+Error: found 'Err' expected ';'
+   ╭─[ recovery_union_multiple.vol:4:5 ]
+   │
+ 4 │     Err(u32) = 2;
+   │     ─┬─  
+   │      ╰─── Unexpected 'Err'
+   │ 
+   │ Note: Expected one of: ';'
+───╯
+Error: found 'Unknown' expected ';'
+   ╭─[ recovery_union_multiple.vol:6:5 ]
+   │
+ 6 │     Unknown(bool) = 4;
+   │     ───┬───  
+   │        ╰───── Unexpected 'Unknown'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

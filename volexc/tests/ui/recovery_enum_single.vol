@@ -1,0 +1,9 @@
+// Error in enum variant - recovery continues to next item
+enum Status {
+    Active 1;
+    Pending = 2;
+}
+
+struct Point {
+    x: u32
+}

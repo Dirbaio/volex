@@ -1,0 +1,18 @@
+Error: found 'name' expected ';'
+   ╭─[ recovery_message_multiple.vol:4:5 ]
+   │
+ 4 │     name: string = 2;
+   │     ──┬─  
+   │       ╰─── Unexpected 'name'
+   │ 
+   │ Note: Expected one of: ';'
+───╯
+Error: found 'data' expected ';'
+   ╭─[ recovery_message_multiple.vol:6:5 ]
+   │
+ 6 │     data: string = 4;
+   │     ──┬─  
+   │       ╰─── Unexpected 'data'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

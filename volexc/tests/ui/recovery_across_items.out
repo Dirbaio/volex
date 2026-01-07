@@ -1,0 +1,45 @@
+Error: found 'y' expected ';'
+   ╭─[ recovery_across_items.vol:4:5 ]
+   │
+ 4 │     y: u32;
+   │     ┬  
+   │     ╰── Unexpected 'y'
+   │ 
+   │ Note: Expected one of: ';'
+───╯
+Error: found 'name' expected ';'
+   ╭─[ recovery_across_items.vol:9:5 ]
+   │
+ 9 │     name: string = 2;
+   │     ──┬─  
+   │       ╰─── Unexpected 'name'
+   │ 
+   │ Note: Expected one of: ';'
+───╯
+Error: found '2' expected '='
+    ╭─[ recovery_across_items.vol:14:13 ]
+    │
+ 14 │     Pending 2;
+    │             ┬  
+    │             ╰── Unexpected '2'
+    │ 
+    │ Note: Expected one of: '='
+────╯
+Error: found 'Err' expected ';'
+    ╭─[ recovery_across_items.vol:19:5 ]
+    │
+ 19 │     Err(u32) = 2;
+    │     ─┬─  
+    │      ╰─── Unexpected 'Err'
+    │ 
+    │ Note: Expected one of: ';'
+────╯
+Error: found 'fn' expected ';'
+    ╭─[ recovery_across_items.vol:24:5 ]
+    │
+ 24 │     fn ping(bool) -> bool = 2;
+    │     ─┬  
+    │      ╰── Unexpected 'fn'
+    │ 
+    │ Note: Expected one of: ';'
+────╯

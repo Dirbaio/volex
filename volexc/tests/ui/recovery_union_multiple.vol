@@ -1,0 +1,7 @@
+// Multiple errors in same union - recovery should report all
+union Result {
+    Ok(string) = 1
+    Err(u32) = 2;
+    Pending = 3
+    Unknown(bool) = 4;
+}

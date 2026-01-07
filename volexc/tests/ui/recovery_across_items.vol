@@ -1,0 +1,25 @@
+// Errors across multiple different item types - recovery should report all
+struct Point {
+    x: u32
+    y: u32;
+}
+
+message Request {
+    id: u32 = 1
+    name: string = 2;
+}
+
+enum Status {
+    Active = 1;
+    Pending 2;
+}
+
+union Result {
+    Ok(string) = 1
+    Err(u32) = 2;
+}
+
+service Api {
+    fn call(u32) -> string = 1
+    fn ping(bool) -> bool = 2;
+}

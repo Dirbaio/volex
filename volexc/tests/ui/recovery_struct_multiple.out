@@ -1,0 +1,18 @@
+Error: found 'y' expected ';'
+   ╭─[ recovery_struct_multiple.vol:4:5 ]
+   │
+ 4 │     y: u32;
+   │     ┬  
+   │     ╰── Unexpected 'y'
+   │ 
+   │ Note: Expected one of: ';'
+───╯
+Error: found 'w' expected ';'
+   ╭─[ recovery_struct_multiple.vol:6:5 ]
+   │
+ 6 │     w: u32;
+   │     ┬  
+   │     ╰── Unexpected 'w'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

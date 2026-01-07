@@ -1,0 +1,18 @@
+Error: found '1' expected '='
+   ╭─[ recovery_enum_single.vol:3:12 ]
+   │
+ 3 │     Active 1;
+   │            ┬  
+   │            ╰── Unexpected '1'
+   │ 
+   │ Note: Expected one of: '='
+───╯
+Error: found '}' expected ';'
+   ╭─[ recovery_enum_single.vol:9:1 ]
+   │
+ 9 │ }
+   │ ┬  
+   │ ╰── Unexpected '}'
+   │ 
+   │ Note: Expected one of: ';'
+───╯

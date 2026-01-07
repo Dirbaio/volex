@@ -1,0 +1,9 @@
+// Error in service method - recovery continues to next item
+service Api {
+    fn get(u32) -> string = 1
+    fn set(string) -> bool = 2;
+}
+
+struct Point {
+    x: u32
+}

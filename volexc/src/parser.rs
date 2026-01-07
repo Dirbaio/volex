@@ -1,6 +1,7 @@
 use chumsky::extra::ParserExtra;
 use chumsky::input::{MapExtra, ValueInput};
 use chumsky::prelude::*;
+use chumsky::recovery::{nested_delimiters, skip_then_retry_until, via_parser};
 
 use crate::schema::{Spanned, *};
 
@@ -228,6 +229,8 @@ where
     });
 
     // Struct field: name: Type;  or  name?: Type;
+    // Recovery: skip tokens until we see a semicolon, then retry.
+    // The skip parser excludes RBrace so we stop at the struct boundary.
     let struct_field = ident
         .clone()
         .map_with(spanned)
@@ -240,9 +243,15 @@ where
             ty,
             optional: opt.is_some(),
         })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().filter(|t| *t != Token::RBrace).ignored(),
+            just(Token::Semicolon).ignored(),
+        ));
 
     // Message field: name: Type = index;  or  name?: Type = index;
+    // Recovery: skip tokens until we see a semicolon, then retry.
+    // The skip parser excludes RBrace so we stop at the message boundary.
     let message_field = ident
         .clone()
         .map_with(spanned)
@@ -258,9 +267,15 @@ where
             index,
             optional: opt.is_some(),
         })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().filter(|t| *t != Token::RBrace).ignored(),
+            just(Token::Semicolon).ignored(),
+        ));
 
     // Enum variant: Name = index;
+    // Recovery: skip tokens until we see a semicolon, then retry.
+    // The skip parser excludes RBrace so we stop at the enum boundary.
     let enum_variant = ident
         .clone()
         .map_with(spanned)
@@ -268,9 +283,15 @@ where
         .then(int.clone().map_with(spanned))
         .then_ignore(just(Token::Semicolon))
         .map(|(name, index)| EnumVariant { name, index })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().filter(|t| *t != Token::RBrace).ignored(),
+            just(Token::Semicolon).ignored(),
+        ));
 
     // Union variant: Name = index;  or  Name(Type) = index;
+    // Recovery: skip tokens until we see a semicolon, then retry.
+    // The skip parser excludes RBrace so we stop at the union boundary.
     let union_variant = ident
         .clone()
         .map_with(spanned)
@@ -283,52 +304,84 @@ where
         .then(int.clone().map_with(spanned))
         .then_ignore(just(Token::Semicolon))
         .map(|((name, ty), index)| UnionVariant { name, ty, index })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().filter(|t| *t != Token::RBrace).ignored(),
+            just(Token::Semicolon).ignored(),
+        ));
 
     // struct Name { fields }
+    // Recovery: if parsing fields fails, use nested_delimiters to skip to the closing brace.
     let struct_def = just(Token::Struct)
         .ignore_then(ident.clone().map_with(spanned))
         .then(
             struct_field
                 .repeated()
                 .collect()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                .recover_with(via_parser(nested_delimiters(
+                    Token::LBrace,
+                    Token::RBrace,
+                    [(Token::LParen, Token::RParen), (Token::LBracket, Token::RBracket)],
+                    |_| vec![],
+                ))),
         )
         .map(|(name, fields)| Item::Struct(Struct { name, fields }))
         .map_with(spanned);
 
     // message Name { fields }
+    // Recovery: if parsing fields fails, use nested_delimiters to skip to the closing brace.
     let message_def = just(Token::Message)
         .ignore_then(ident.clone().map_with(spanned))
         .then(
             message_field
                 .repeated()
                 .collect()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                .recover_with(via_parser(nested_delimiters(
+                    Token::LBrace,
+                    Token::RBrace,
+                    [(Token::LParen, Token::RParen), (Token::LBracket, Token::RBracket)],
+                    |_| vec![],
+                ))),
         )
         .map(|(name, fields)| Item::Message(Message { name, fields }))
         .map_with(spanned);
 
     // enum Name { variants }
+    // Recovery: if parsing variants fails, use nested_delimiters to skip to the closing brace.
     let enum_def = just(Token::Enum)
         .ignore_then(ident.clone().map_with(spanned))
         .then(
             enum_variant
                 .repeated()
                 .collect()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                .recover_with(via_parser(nested_delimiters(
+                    Token::LBrace,
+                    Token::RBrace,
+                    [(Token::LParen, Token::RParen), (Token::LBracket, Token::RBracket)],
+                    |_| vec![],
+                ))),
         )
         .map(|(name, variants)| Item::Enum(Enum { name, variants }))
         .map_with(spanned);
 
     // union Name { variants }
+    // Recovery: if parsing variants fails, use nested_delimiters to skip to the closing brace.
     let union_def = just(Token::Union)
         .ignore_then(ident.clone().map_with(spanned))
         .then(
             union_variant
                 .repeated()
                 .collect()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                .recover_with(via_parser(nested_delimiters(
+                    Token::LBrace,
+                    Token::RBrace,
+                    [(Token::LParen, Token::RParen), (Token::LBracket, Token::RBracket)],
+                    |_| vec![],
+                ))),
         )
         .map(|(name, variants)| Item::Union(Union { name, variants }))
         .map_with(spanned);
@@ -345,6 +398,8 @@ where
     )));
 
     // Service method: fn name(Type) -> Type = index;
+    // Recovery: skip tokens until we see a semicolon, then retry.
+    // The skip parser excludes RBrace so we stop at the service boundary.
     let service_method = just(Token::Fn)
         .ignore_then(ident.clone().map_with(spanned))
         .then(ty.clone().delimited_by(just(Token::LParen), just(Token::RParen)))
@@ -358,23 +413,38 @@ where
             response,
             index,
         })
-        .map_with(spanned);
+        .map_with(spanned)
+        .recover_with(skip_then_retry_until(
+            any().filter(|t| *t != Token::RBrace).ignored(),
+            just(Token::Semicolon).ignored(),
+        ));
 
     // service Name { methods }
+    // Recovery: if parsing methods fails, use nested_delimiters to skip to the closing brace.
     let service_def = just(Token::Service)
         .ignore_then(ident.clone().map_with(spanned))
         .then(
             service_method
                 .repeated()
                 .collect()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                .recover_with(via_parser(nested_delimiters(
+                    Token::LBrace,
+                    Token::RBrace,
+                    [(Token::LParen, Token::RParen), (Token::LBracket, Token::RBracket)],
+                    |_| vec![],
+                ))),
         )
         .map(|(name, methods)| Item::Service(Service { name, methods }))
         .map_with(spanned);
 
     let item = choice((struct_def, message_def, enum_def, union_def, service_def));
 
-    item.repeated()
+    // For top-level items, recover by skipping until we see a keyword that starts a new item
+    let item_start = one_of([Token::Struct, Token::Message, Token::Enum, Token::Union, Token::Service]).ignored();
+
+    item.recover_with(skip_then_retry_until(any().ignored(), item_start))
+        .repeated()
         .collect()
         .then_ignore(end())
         .map(|items| Schema { items })
