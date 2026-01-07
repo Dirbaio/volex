@@ -214,22 +214,18 @@ where
 
         let array = ty
             .clone()
-            .map_with(spanned)
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(|inner| Type::Array(Box::new(inner)));
 
         let map = ty
             .clone()
-            .map_with(spanned)
             .then_ignore(just(Token::Colon))
-            .then(ty.clone().map_with(spanned))
+            .then(ty.clone())
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
             .map(|(k, v)| Type::Map(Box::new(k), Box::new(v)));
 
-        choice((primitive, array, map, named))
+        choice((primitive, array, map, named)).map_with(spanned)
     });
-
-    let spanned_ty = ty.map_with(spanned);
 
     // Struct field: name: Type;  or  name?: Type;
     let struct_field = ident
@@ -237,7 +233,7 @@ where
         .map_with(spanned)
         .then(just(Token::Question).or_not())
         .then_ignore(just(Token::Colon))
-        .then(spanned_ty.clone())
+        .then(ty.clone())
         .then_ignore(just(Token::Semicolon))
         .map(|((name, opt), ty)| StructField {
             name,
@@ -252,7 +248,7 @@ where
         .map_with(spanned)
         .then(just(Token::Question).or_not())
         .then_ignore(just(Token::Colon))
-        .then(spanned_ty.clone())
+        .then(ty.clone())
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
         .then_ignore(just(Token::Semicolon))
@@ -279,8 +275,7 @@ where
         .clone()
         .map_with(spanned)
         .then(
-            spanned_ty
-                .clone()
+            ty.clone()
                 .delimited_by(just(Token::LParen), just(Token::RParen))
                 .or_not(),
         )
@@ -342,22 +337,17 @@ where
     let service_response = just(Token::Arrow).ignore_then(choice((
         // -> stream Type
         just(Token::Stream)
-            .ignore_then(spanned_ty.clone())
+            .ignore_then(ty.clone())
             .map_with(|ty, e| Spanned::new(ServiceResponse::Stream(ty.node), e.span())),
         // -> Type
-        spanned_ty
-            .clone()
+        ty.clone()
             .map_with(|ty, e| Spanned::new(ServiceResponse::Unary(ty.node), e.span())),
     )));
 
     // Service method: fn name(Type) -> Type = index;
     let service_method = just(Token::Fn)
         .ignore_then(ident.clone().map_with(spanned))
-        .then(
-            spanned_ty
-                .clone()
-                .delimited_by(just(Token::LParen), just(Token::RParen)),
-        )
+        .then(ty.clone().delimited_by(just(Token::LParen), just(Token::RParen)))
         .then(service_response)
         .then_ignore(just(Token::Eq))
         .then(int.clone().map_with(spanned))
