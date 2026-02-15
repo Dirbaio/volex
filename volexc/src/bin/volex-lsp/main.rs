@@ -26,6 +26,7 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Left(true)),
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         ..Default::default()
     })
     .unwrap();
@@ -117,6 +118,22 @@ fn handle_request(
         Ok((id, params)) => {
             log::info!("Got rename request #{id}: {params:?}");
             let result = lsp_state.rename(params);
+            let result = serde_json::to_value(result).unwrap();
+            let resp = Response {
+                id,
+                result: Some(result),
+                error: None,
+            };
+            connection.sender.send(Message::Response(resp))?;
+            return Ok(());
+        }
+        Err(req) => req,
+    };
+
+    let req = match cast_request::<CodeActionRequest>(req) {
+        Ok((id, params)) => {
+            log::info!("Got code action request #{id}: {params:?}");
+            let result = lsp_state.code_action(params);
             let result = serde_json::to_value(result).unwrap();
             let resp = Response {
                 id,

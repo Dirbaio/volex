@@ -349,6 +349,111 @@ impl VolexLsp {
 
         Some(locations)
     }
+
+    pub fn code_action(&self, params: CodeActionParams) -> Option<Vec<CodeActionOrCommand>> {
+        let uri = &params.text_document.uri;
+        let range = params.range;
+
+        let doc = self.documents.get(uri)?;
+        let schema = doc.schema.as_ref()?;
+
+        // Get offset from the start of the range
+        let offset = position_to_offset(&doc.text, range.start)?;
+
+        // Find what item we're in
+        let item_at_position = find_item_at_position(schema, offset)?;
+
+        let mut actions = Vec::new();
+
+        // Only offer renumber action when on an item definition
+        if let ItemAtPosition::ItemDefinition(item, _span) = item_at_position {
+            match item {
+                Item::Message(m) => {
+                    if !m.fields.is_empty() {
+                        actions.push(create_renumber_action(uri, &doc.text, item, "Renumber message fields"));
+                    }
+                }
+                Item::Enum(e) => {
+                    if !e.variants.is_empty() {
+                        actions.push(create_renumber_action(uri, &doc.text, item, "Renumber enum variants"));
+                    }
+                }
+                Item::Union(u) => {
+                    if !u.variants.is_empty() {
+                        actions.push(create_renumber_action(uri, &doc.text, item, "Renumber union variants"));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if actions.is_empty() {
+            None
+        } else {
+            Some(actions)
+        }
+    }
+}
+
+fn create_renumber_action(uri: &Url, text: &str, item: &Item, title: &str) -> CodeActionOrCommand {
+    let mut changes = Vec::new();
+
+    match item {
+        Item::Message(m) => {
+            // Messages must start at index 1 (0 is reserved for termination)
+            for (idx, field) in m.fields.iter().enumerate() {
+                let new_index = (idx + 1) as u32;
+                let index_span = field.node.index.span;
+                changes.push(TextEdit {
+                    range: span_to_range(text, index_span),
+                    new_text: new_index.to_string(),
+                });
+            }
+        }
+        Item::Enum(e) => {
+            // Enums can start at index 0
+            for (idx, variant) in e.variants.iter().enumerate() {
+                let new_index = idx as u32;
+                let index_span = variant.node.index.span;
+                changes.push(TextEdit {
+                    range: span_to_range(text, index_span),
+                    new_text: new_index.to_string(),
+                });
+            }
+        }
+        Item::Union(u) => {
+            // Unions must start at index 1 (0 is reserved)
+            for (idx, variant) in u.variants.iter().enumerate() {
+                let new_index = (idx + 1) as u32;
+                let index_span = variant.node.index.span;
+                changes.push(TextEdit {
+                    range: span_to_range(text, index_span),
+                    new_text: new_index.to_string(),
+                });
+            }
+        }
+        _ => {}
+    }
+
+    let mut workspace_changes = HashMap::new();
+    workspace_changes.insert(uri.clone(), changes);
+
+    let edit = WorkspaceEdit {
+        changes: Some(workspace_changes),
+        document_changes: None,
+        change_annotations: None,
+    };
+
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title: title.to_string(),
+        kind: Some(CodeActionKind::REFACTOR),
+        diagnostics: None,
+        edit: Some(edit),
+        command: None,
+        is_preferred: None,
+        disabled: None,
+        data: None,
+    })
 }
 
 enum ItemAtPosition<'a> {
