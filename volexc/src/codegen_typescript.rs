@@ -94,7 +94,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         // Generate encode function
         writeln!(
             self.output,
-            "export function encode{}(value: {}, buf: Uint8Array[]): void {{",
+            "export function encode{}(value: {}, buf: __rt.WriteBuf): void {{",
             s.name.node, s.name.node
         )
         .unwrap();
@@ -203,7 +203,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         // Generate encode function
         writeln!(
             self.output,
-            "export function encode{}(value: {}, buf: Uint8Array[]): void {{",
+            "export function encode{}(value: {}, buf: __rt.WriteBuf): void {{",
             m.name.node, m.name.node
         )
         .unwrap();
@@ -301,7 +301,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         // Generate encode function
         writeln!(
             self.output,
-            "export function encode{}(value: {}, buf: Uint8Array[]): void {{",
+            "export function encode{}(value: {}, buf: __rt.WriteBuf): void {{",
             e.name.node, e.name.node
         )
         .unwrap();
@@ -363,7 +363,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         // Generate encode function
         writeln!(
             self.output,
-            "export function encode{}(value: {}, buf: Uint8Array[]): void {{",
+            "export function encode{}(value: {}, buf: __rt.WriteBuf): void {{",
             union_name, union_name
         )
         .unwrap();
@@ -525,9 +525,9 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         if wire_type == 4 {
             // WireBytes - need to encode to temp buffer first
             writeln!(self.output, "{}{{", spaces).unwrap();
-            writeln!(self.output, "{}  const tmpBuf: Uint8Array[] = [];", spaces).unwrap();
+            writeln!(self.output, "{}  const tmpBuf = new __rt.WriteBuf();", spaces).unwrap();
             self.encode_value_to_buf(value, ty, indent + 1, "tmpBuf", true);
-            writeln!(self.output, "{}  const bytes = __rt.flattenBuf(tmpBuf);", spaces).unwrap();
+            writeln!(self.output, "{}  const bytes = tmpBuf.toUint8Array();", spaces).unwrap();
             writeln!(self.output, "{}  __rt.encodeVarint(bytes.length, buf);", spaces).unwrap();
             writeln!(self.output, "{}  buf.push(bytes);", spaces).unwrap();
             writeln!(self.output, "{}}}", spaces).unwrap();
@@ -811,13 +811,13 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     .unwrap();
 
                     // Encode the request
-                    writeln!(self.output, "    const reqBuf: Uint8Array[] = [];").unwrap();
+                    writeln!(self.output, "    const reqBuf = new __rt.WriteBuf();").unwrap();
                     self.encode_for_service("req", &method.request.node, 2, "reqBuf");
 
                     // Make the call
                     writeln!(
                         self.output,
-                        "    const respBuf = await this.base.callUnary({}, __rt.flattenBuf(reqBuf));",
+                        "    const respBuf = await this.base.callUnary({}, reqBuf.toUint8Array());",
                         index
                     )
                     .unwrap();
@@ -847,13 +847,13 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     .unwrap();
 
                     // Encode the request
-                    writeln!(self.output, "    const reqBuf: Uint8Array[] = [];").unwrap();
+                    writeln!(self.output, "    const reqBuf = new __rt.WriteBuf();").unwrap();
                     self.encode_for_service("req", &method.request.node, 2, "reqBuf");
 
                     // Make the call
                     writeln!(
                         self.output,
-                        "    const receiver = await this.base.callStream({}, __rt.flattenBuf(reqBuf));",
+                        "    const receiver = await this.base.callStream({}, reqBuf.toUint8Array());",
                         index
                     )
                     .unwrap();

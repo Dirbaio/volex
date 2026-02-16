@@ -1,7 +1,7 @@
 // Volex RPC Client Infrastructure for TypeScript
 // This implements the client-side RPC protocol as defined in doc/rpc_transport.md
 
-import { Buf, encodeVarint, decodeVarint, flattenBuf } from './volex.js';
+import { Buf, WriteBuf, encodeVarint, decodeVarint } from './volex.js';
 
 // ============================================================================
 // RPC Message Types
@@ -158,9 +158,9 @@ export class TcpTransport implements Transport {
     }
 
     // Encode length prefix as LEB128
-    const lenBuf: Uint8Array[] = [];
+    const lenBuf = new WriteBuf();
     encodeVarint(data.length, lenBuf);
-    const lenBytes = flattenBuf(lenBuf);
+    const lenBytes = lenBuf.toUint8Array();
 
     // Combine length and data
     const packet = new Uint8Array(lenBytes.length + data.length);
@@ -371,12 +371,12 @@ export class ClientBase {
     const requestId = this.nextId++;
 
     // Build request message
-    const buf: Uint8Array[] = [];
-    buf.push(new Uint8Array([RPC_TYPE_REQUEST]));
+    const buf = new WriteBuf();
+    buf.pushByte(RPC_TYPE_REQUEST);
     encodeVarint(requestId, buf);
     encodeVarint(methodIndex, buf);
     buf.push(payload);
-    const packet = flattenBuf(buf);
+    const packet = buf.toUint8Array();
 
     // Create promise for response
     const responsePromise = new Promise<Uint8Array>((resolve, reject) => {
@@ -403,12 +403,12 @@ export class ClientBase {
     const requestId = this.nextId++;
 
     // Build request message
-    const buf: Uint8Array[] = [];
-    buf.push(new Uint8Array([RPC_TYPE_REQUEST]));
+    const buf = new WriteBuf();
+    buf.pushByte(RPC_TYPE_REQUEST);
     encodeVarint(requestId, buf);
     encodeVarint(methodIndex, buf);
     buf.push(payload);
-    const packet = flattenBuf(buf);
+    const packet = buf.toUint8Array();
 
     // Create pending stream
     const pendingStream: PendingStream = {
@@ -435,10 +435,10 @@ export class ClientBase {
   }
 
   private async sendCancel(requestId: number): Promise<void> {
-    const buf: Uint8Array[] = [];
-    buf.push(new Uint8Array([RPC_TYPE_CANCEL]));
+    const buf = new WriteBuf();
+    buf.pushByte(RPC_TYPE_CANCEL);
     encodeVarint(requestId, buf);
-    const packet = flattenBuf(buf);
+    const packet = buf.toUint8Array();
     try {
       await this.transport.send(packet);
     } catch {
@@ -512,10 +512,10 @@ export class StreamReceiver {
     this.pending.waiters = [];
 
     // Send cancel message
-    const buf: Uint8Array[] = [];
-    buf.push(new Uint8Array([RPC_TYPE_CANCEL]));
+    const buf = new WriteBuf();
+    buf.pushByte(RPC_TYPE_CANCEL);
     encodeVarint(this.requestId, buf);
-    const packet = flattenBuf(buf);
+    const packet = buf.toUint8Array();
     try {
       await this.transport.send(packet);
     } catch {

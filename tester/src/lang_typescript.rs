@@ -45,9 +45,9 @@ pub fn launch(suite: &str, output_dir: &Path, generated_path: &Path, type_names:
             format!(
                 r#"    case "{}":
       const val{} = convertJsonValue(req.json);
-      const buf{}: Uint8Array[] = [];
+      const buf{} = new runtime.WriteBuf();
       encode{}(val{}, buf{});
-      return {{ ok: true, result: Array.from(runtime.flattenBuf(buf{})).map(b => b.toString(16).padStart(2, '0')).join('') }};"#,
+      return {{ ok: true, result: Array.from(buf{}.toUint8Array()).map(b => b.toString(16).padStart(2, '0')).join('') }};"#,
                 t, t, t, t, t, t, t
             )
         })
