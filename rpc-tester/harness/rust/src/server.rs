@@ -3,11 +3,12 @@
 mod generated;
 
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use generated::*;
 use tokio::net::TcpListener;
-use volex::rpc::{RpcError, StreamSender, TcpTransport};
+use volex::rpc::{PacketServer, RpcError, StreamSender, TcpTransport};
 
 /// A guard that runs a closure when dropped.
 struct OnDrop<F: FnOnce()>(Option<F>);
@@ -145,28 +146,38 @@ impl TestService for TestServiceImpl {
     }
 }
 
+async fn serve_tcp() -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+
+    // Print the address for the client to connect to
+    println!("{}", addr);
+
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let transport = TcpTransport::new(stream);
+        let server = PacketServer::new(transport);
+        let impl_ = Rc::new(TestServiceImpl::new());
+
+        tokio::task::spawn_local(async move {
+            let run_fut = server.run();
+            let serve_fut = serve_test_service(&server, impl_);
+            let _ = tokio::join!(run_fut, serve_fut);
+        });
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let transport = std::env::var("TRANSPORT").unwrap_or_else(|_| "tcp".to_string());
+
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
-            let listener = TcpListener::bind("127.0.0.1:0").await?;
-            let addr = listener.local_addr()?;
-
-            // Print the address for the client to connect to
-            println!("{}", addr);
-
-            loop {
-                let (stream, _) = listener.accept().await?;
-                let transport = TcpTransport::new(stream);
-                let impl_ = TestServiceImpl::new();
-                let server = TestServiceServer::new(transport, impl_);
-
-                tokio::task::spawn_local(async move {
-                    if let Err(e) = server.serve().await {
-                        eprintln!("Server error: {}", e);
-                    }
-                });
+            match transport.as_str() {
+                "tcp" => serve_tcp().await,
+                "http" => todo!("HTTP server transport not yet implemented"),
+                other => Err(format!("unknown transport: {}", other).into()),
             }
         })
         .await

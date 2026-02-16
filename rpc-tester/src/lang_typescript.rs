@@ -1,8 +1,9 @@
 use std::process::{Command, Stdio};
 
+use crate::Transport;
 use crate::common::{compile_schema, get_tester_dir};
 
-pub fn run_client(addr: &str) -> Result<(), String> {
+pub fn run_client(addr: &str, transport: Transport) -> Result<(), String> {
     let tester_dir = get_tester_dir();
     let ts_harness_dir = tester_dir.join("harness/ts");
 
@@ -32,6 +33,7 @@ pub fn run_client(addr: &str) -> Result<(), String> {
         .args(["tsx", "client.ts"])
         .current_dir(&ts_harness_dir)
         .env("SERVER_ADDR", addr)
+        .env("TRANSPORT", transport.as_str())
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("npx tsx: {}", e))?;

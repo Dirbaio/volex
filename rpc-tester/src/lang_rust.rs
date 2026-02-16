@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
+use crate::Transport;
 use crate::common::{compile_schema, get_tester_dir};
 
 fn build_binary(bin_name: &str) -> Result<(), String> {
@@ -21,7 +22,7 @@ fn build_binary(bin_name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn start_server() -> Result<(Child, String), String> {
+pub fn start_server(transport: Transport) -> Result<(Child, String), String> {
     let tester_dir = get_tester_dir();
     let generated_path = tester_dir.join("harness/rust/src/generated.rs");
 
@@ -31,6 +32,7 @@ pub fn start_server() -> Result<(Child, String), String> {
     println!("  Starting Rust server...");
     let server_bin = tester_dir.parent().unwrap().join("target/debug/server");
     let mut server = Command::new(&server_bin)
+        .env("TRANSPORT", transport.as_str())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -51,7 +53,7 @@ pub fn start_server() -> Result<(Child, String), String> {
     Ok((server, addr))
 }
 
-pub fn run_client(addr: &str) -> Result<(), String> {
+pub fn run_client(addr: &str, transport: Transport) -> Result<(), String> {
     let tester_dir = get_tester_dir();
     let generated_path = tester_dir.join("harness/rust/src/generated.rs");
 
@@ -63,6 +65,7 @@ pub fn run_client(addr: &str) -> Result<(), String> {
     println!("  Running Rust client tests...");
     let test_output = Command::new(&client_bin)
         .env("SERVER_ADDR", addr)
+        .env("TRANSPORT", transport.as_str())
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("rust client: {}", e))?;

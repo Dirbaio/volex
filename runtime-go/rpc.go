@@ -8,19 +8,6 @@ import (
 )
 
 // ============================================================================
-// RPC Transport
-// ============================================================================
-
-// Transport is the interface for sending and receiving binary messages.
-// Implementations must be safe for concurrent use.
-type Transport interface {
-	// Send sends a binary message. It blocks until the message is sent.
-	Send(ctx context.Context, data []byte) error
-	// Recv receives a binary message. It blocks until a message is received.
-	Recv(ctx context.Context) ([]byte, error)
-}
-
-// ============================================================================
 // RPC Errors
 // ============================================================================
 
@@ -49,16 +36,6 @@ const (
 // RPC Message Types
 // ============================================================================
 
-// RPC message format:
-// Server -> Client (0x00-0x7F):
-// - Response:   [0x00] [callId: LEB128] [payload...]
-// - StreamItem: [0x01] [callId: LEB128] [payload...]
-// - StreamEnd:  [0x02] [callId: LEB128]
-// - Error:      [0x03] [callId: LEB128] [errorCode: LEB128] [errorMessage: string]
-// Client -> Server (0x80-0xFF):
-// - Request:    [0x80] [callId: LEB128] [methodIndex: LEB128] [payload...]
-// - Cancel:     [0x81] [callId: LEB128]
-
 const (
 	// Server -> Client message types (0x00-0x7F)
 	rpcTypeResponse   byte = 0x00
@@ -72,206 +49,95 @@ const (
 )
 
 // ============================================================================
-// Server Infrastructure
+// High-level Transport Interfaces
 // ============================================================================
 
-// MethodHandler is a function that handles a single RPC method call.
-// For unary methods, it returns the response bytes directly.
-// For streaming methods, it sends stream items through the provided channel.
-type MethodHandler func(ctx context.Context, payload []byte, sender *ResponseSender) error
-
-// ResponseSender is used by method handlers to send responses.
-type ResponseSender struct {
-	server    *ServerBase
-	requestID uint64
+// ClientTransport is the high-level client transport interface.
+// Generated client code uses this interface.
+type ClientTransport interface {
+	// CallUnary makes a unary RPC call.
+	CallUnary(ctx context.Context, methodIndex uint32, payload []byte) ([]byte, error)
+	// CallStream makes a streaming RPC call.
+	CallStream(ctx context.Context, methodIndex uint32, payload []byte) (*StreamReceiver, error)
 }
 
-// SendResponse sends a unary response.
-func (s *ResponseSender) SendResponse(payload []byte) error {
-	return s.server.sendResponse(s.requestID, payload)
+// ServerTransport accepts incoming RPC calls.
+// Generated server code uses this interface.
+type ServerTransport interface {
+	// Accept waits for and returns the next incoming RPC call.
+	Accept(ctx context.Context) (ServerCall, error)
 }
 
-// SendStreamItem sends a stream item.
-func (s *ResponseSender) SendStreamItem(payload []byte) error {
-	return s.server.sendStreamItem(s.requestID, payload)
+// ServerCall represents a single incoming RPC request.
+type ServerCall interface {
+	// MethodIndex returns the method index.
+	MethodIndex() uint32
+	// Payload returns the request payload.
+	Payload() []byte
+	// Context returns the context for this call. The context is canceled when the client cancels the request.
+	Context() context.Context
+	// SendResponse sends a unary response.
+	SendResponse(payload []byte) error
+	// SendStreamItem sends a stream item.
+	SendStreamItem(payload []byte) error
+	// SendStreamEnd signals the end of a stream.
+	SendStreamEnd() error
+	// SendError sends an error response.
+	SendError(code uint32, message string) error
 }
 
-// SendStreamEnd signals the end of a stream.
-func (s *ResponseSender) SendStreamEnd() error {
-	return s.server.sendStreamEnd(s.requestID)
+// StreamReceiver is used to receive streaming responses.
+type StreamReceiver struct {
+	streamChan <-chan streamResult
+	cancelFunc func()
+	ctx        context.Context
 }
 
-// SendError sends an error response.
-func (s *ResponseSender) SendError(code uint32, errMsg string) error {
-	return s.server.sendError(s.requestID, code, errMsg)
-}
-
-// activeRequest tracks an in-flight server request.
-type activeRequest struct {
-	cancel context.CancelFunc
-}
-
-// ServerBase provides common server functionality.
-type ServerBase struct {
-	transport Transport
-	handlers  map[uint32]MethodHandler
-	mu        sync.Mutex
-	active    map[uint64]*activeRequest
-}
-
-// NewServerBase creates a new ServerBase.
-func NewServerBase(transport Transport) *ServerBase {
-	return &ServerBase{
-		transport: transport,
-		handlers:  make(map[uint32]MethodHandler),
-		active:    make(map[uint64]*activeRequest),
-	}
-}
-
-// RegisterHandler registers a method handler.
-func (s *ServerBase) RegisterHandler(methodIndex uint32, handler MethodHandler) {
-	s.handlers[methodIndex] = handler
-}
-
-// Serve starts serving requests. It runs until the context is canceled or an error occurs.
-func (s *ServerBase) Serve(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			s.cancelAllRequests()
-			return ctx.Err()
-		default:
+// Recv receives the next stream item. Returns nil, ErrStreamClosed when the stream ends.
+func (s *StreamReceiver) Recv() ([]byte, error) {
+	select {
+	case <-s.ctx.Done():
+		s.Cancel()
+		return nil, s.ctx.Err()
+	case res := <-s.streamChan:
+		if res.err != nil {
+			return nil, res.err
 		}
-
-		data, err := s.transport.Recv(ctx)
-		if err != nil {
-			s.cancelAllRequests()
-			return err
-		}
-
-		s.handleMessage(ctx, data)
+		return res.data, nil
 	}
 }
 
-func (s *ServerBase) cancelAllRequests() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, req := range s.active {
-		req.cancel()
+// Cancel cancels the stream.
+func (s *StreamReceiver) Cancel() {
+	if s.cancelFunc != nil {
+		s.cancelFunc()
+		s.cancelFunc = nil
 	}
 }
-
-func (s *ServerBase) handleMessage(ctx context.Context, data []byte) {
-	buf := data
-
-	// Decode message type
-	if len(buf) == 0 {
-		return // Invalid message, ignore
-	}
-	msgType := buf[0]
-	buf = buf[1:]
-
-	// Decode call ID
-	callID, err := DecodeLEB128(&buf)
-	if err != nil {
-		return // Invalid message, ignore
-	}
-
-	switch msgType {
-	case rpcTypeRequest:
-		go s.handleRequest(ctx, callID, buf)
-	case rpcTypeCancel:
-		s.handleCancel(callID)
-	default:
-		// Unknown message type, ignore
-	}
-}
-
-func (s *ServerBase) handleRequest(ctx context.Context, callID uint64, buf []byte) {
-	// Create cancellable context for this request
-	reqCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Register the active request
-	s.mu.Lock()
-	s.active[callID] = &activeRequest{cancel: cancel}
-	s.mu.Unlock()
-
-	// Clean up when done
-	defer func() {
-		s.mu.Lock()
-		delete(s.active, callID)
-		s.mu.Unlock()
-	}()
-
-	// Decode method index
-	methodIndex, err := DecodeLEB128(&buf)
-	if err != nil {
-		s.sendError(callID, ErrCodeDecodeError, "failed to decode method index")
-		return
-	}
-
-	handler, ok := s.handlers[uint32(methodIndex)]
-	if !ok {
-		s.sendError(callID, ErrCodeUnknownMethod, "unknown method")
-		return
-	}
-
-	sender := &ResponseSender{server: s, requestID: callID}
-	if err := handler(reqCtx, buf, sender); err != nil {
-		s.sendError(callID, ErrCodeHandlerError, err.Error())
-	}
-}
-
-func (s *ServerBase) handleCancel(callID uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if req, ok := s.active[callID]; ok {
-		req.cancel()
-	}
-}
-
-func (s *ServerBase) sendResponse(requestID uint64, payload []byte) error {
-	var buf []byte
-	buf = append(buf, rpcTypeResponse)
-	EncodeLEB128(requestID, &buf)
-	buf = append(buf, payload...)
-	return s.transport.Send(context.Background(), buf)
-}
-
-func (s *ServerBase) sendStreamItem(requestID uint64, payload []byte) error {
-	var buf []byte
-	buf = append(buf, rpcTypeStreamItem)
-	EncodeLEB128(requestID, &buf)
-	buf = append(buf, payload...)
-	return s.transport.Send(context.Background(), buf)
-}
-
-func (s *ServerBase) sendStreamEnd(requestID uint64) error {
-	var buf []byte
-	buf = append(buf, rpcTypeStreamEnd)
-	EncodeLEB128(requestID, &buf)
-	return s.transport.Send(context.Background(), buf)
-}
-
-func (s *ServerBase) sendError(requestID uint64, code uint32, errMsg string) error {
-	var buf []byte
-	buf = append(buf, rpcTypeError)
-	EncodeLEB128(requestID, &buf)
-	EncodeLEB128(uint64(code), &buf)
-	EncodeString(errMsg, &buf)
-	return s.transport.Send(context.Background(), buf)
-}
-
-// ============================================================================
-// Client Infrastructure
-// ============================================================================
 
 // streamResult represents either a stream item or an error/end signal.
 type streamResult struct {
 	data []byte // nil if this is an error or stream end
 	err  error  // nil for data items, ErrStreamClosed for end, or the actual error
 }
+
+// ============================================================================
+// PacketTransport (low-level)
+// ============================================================================
+
+// PacketTransport is the low-level interface for sending and receiving binary messages.
+// Used for transports like TCP, WebSocket, and serial that provide a bidirectional
+// stream of discrete messages. Implementations must be safe for concurrent use.
+type PacketTransport interface {
+	// Send sends a binary message. It blocks until the message is sent.
+	Send(ctx context.Context, data []byte) error
+	// Recv receives a binary message. It blocks until a message is received.
+	Recv(ctx context.Context) ([]byte, error)
+}
+
+// ============================================================================
+// PacketClient (adapter: PacketTransport -> ClientTransport)
+// ============================================================================
 
 // pendingRequest tracks an in-flight request.
 type pendingRequest struct {
@@ -281,9 +147,10 @@ type pendingRequest struct {
 	isStream   bool
 }
 
-// ClientBase provides common client functionality.
-type ClientBase struct {
-	transport   Transport
+// PacketClient multiplexes RPC calls over a PacketTransport.
+// Implements ClientTransport.
+type PacketClient struct {
+	transport   PacketTransport
 	mu          sync.Mutex
 	nextID      uint64
 	pending     map[uint64]*pendingRequest
@@ -292,9 +159,9 @@ type ClientBase struct {
 	recvErrMu   sync.RWMutex
 }
 
-// NewClientBase creates a new ClientBase.
-func NewClientBase(transport Transport) *ClientBase {
-	return &ClientBase{
+// NewPacketClient creates a new PacketClient.
+func NewPacketClient(transport PacketTransport) *PacketClient {
+	return &PacketClient{
 		transport: transport,
 		nextID:    1,
 		pending:   make(map[uint64]*pendingRequest),
@@ -303,7 +170,7 @@ func NewClientBase(transport Transport) *ClientBase {
 
 // Run runs the client's receive loop until the context is canceled or the transport fails.
 // Must be called before making any RPC calls. This method blocks until an error occurs.
-func (c *ClientBase) Run(ctx context.Context) error {
+func (c *PacketClient) Run(ctx context.Context) error {
 	c.mu.Lock()
 	if c.recvRunning {
 		c.mu.Unlock()
@@ -315,7 +182,7 @@ func (c *ClientBase) Run(ctx context.Context) error {
 	return c.receiveLoop(ctx)
 }
 
-func (c *ClientBase) receiveLoop(ctx context.Context) error {
+func (c *PacketClient) receiveLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -334,7 +201,7 @@ func (c *ClientBase) receiveLoop(ctx context.Context) error {
 	}
 }
 
-func (c *ClientBase) setRecvError(err error) {
+func (c *PacketClient) setRecvError(err error) {
 	c.recvErrMu.Lock()
 	c.recvErr = err
 	c.recvErrMu.Unlock()
@@ -357,20 +224,18 @@ func (c *ClientBase) setRecvError(err error) {
 	c.mu.Unlock()
 }
 
-func (c *ClientBase) handleResponse(data []byte) {
+func (c *PacketClient) handleResponse(data []byte) {
 	buf := data
 
-	// Decode message type
 	if len(buf) == 0 {
-		return // Invalid message, ignore
+		return
 	}
 	msgType := buf[0]
 	buf = buf[1:]
 
-	// Decode request ID
 	requestID, err := DecodeLEB128(&buf)
 	if err != nil {
-		return // Invalid message, ignore
+		return
 	}
 
 	c.mu.Lock()
@@ -378,12 +243,11 @@ func (c *ClientBase) handleResponse(data []byte) {
 	c.mu.Unlock()
 
 	if !ok {
-		return // Unknown request ID, ignore
+		return
 	}
 
 	switch msgType {
 	case rpcTypeResponse:
-		// Make a copy of the payload
 		payload := make([]byte, len(buf))
 		copy(payload, buf)
 		select {
@@ -392,7 +256,6 @@ func (c *ClientBase) handleResponse(data []byte) {
 		}
 
 	case rpcTypeStreamItem:
-		// Make a copy of the payload
 		payload := make([]byte, len(buf))
 		copy(payload, buf)
 		select {
@@ -431,8 +294,7 @@ func (c *ClientBase) handleResponse(data []byte) {
 }
 
 // CallUnary makes a unary RPC call.
-func (c *ClientBase) CallUnary(ctx context.Context, methodIndex uint32, payload []byte) ([]byte, error) {
-	// Check for receive error
+func (c *PacketClient) CallUnary(ctx context.Context, methodIndex uint32, payload []byte) ([]byte, error) {
 	c.recvErrMu.RLock()
 	if c.recvErr != nil {
 		err := c.recvErr
@@ -441,7 +303,6 @@ func (c *ClientBase) CallUnary(ctx context.Context, methodIndex uint32, payload 
 	}
 	c.recvErrMu.RUnlock()
 
-	// Allocate request ID
 	c.mu.Lock()
 	requestID := c.nextID
 	c.nextID++
@@ -454,14 +315,12 @@ func (c *ClientBase) CallUnary(ctx context.Context, methodIndex uint32, payload 
 	c.pending[requestID] = req
 	c.mu.Unlock()
 
-	// Build request message
 	var buf []byte
 	buf = append(buf, rpcTypeRequest)
 	EncodeLEB128(requestID, &buf)
 	EncodeLEB128(uint64(methodIndex), &buf)
 	buf = append(buf, payload...)
 
-	// Send request
 	if err := c.transport.Send(ctx, buf); err != nil {
 		c.mu.Lock()
 		delete(c.pending, requestID)
@@ -469,10 +328,8 @@ func (c *ClientBase) CallUnary(ctx context.Context, methodIndex uint32, payload 
 		return nil, err
 	}
 
-	// Wait for response
 	select {
 	case <-ctx.Done():
-		// Send cancel message
 		c.sendCancel(requestID)
 		c.mu.Lock()
 		delete(c.pending, requestID)
@@ -488,39 +345,8 @@ func (c *ClientBase) CallUnary(ctx context.Context, methodIndex uint32, payload 
 	}
 }
 
-// StreamReceiver is used to receive streaming responses.
-type StreamReceiver struct {
-	client     *ClientBase
-	requestID  uint64
-	streamChan <-chan streamResult
-	ctx        context.Context
-}
-
-// Recv receives the next stream item. Returns nil, ErrStreamClosed when the stream ends.
-func (s *StreamReceiver) Recv() ([]byte, error) {
-	select {
-	case <-s.ctx.Done():
-		s.Cancel()
-		return nil, s.ctx.Err()
-	case res := <-s.streamChan:
-		if res.err != nil {
-			return nil, res.err
-		}
-		return res.data, nil
-	}
-}
-
-// Cancel cancels the stream.
-func (s *StreamReceiver) Cancel() {
-	s.client.sendCancel(s.requestID)
-	s.client.mu.Lock()
-	delete(s.client.pending, s.requestID)
-	s.client.mu.Unlock()
-}
-
 // CallStream makes a streaming RPC call.
-func (c *ClientBase) CallStream(ctx context.Context, methodIndex uint32, payload []byte) (*StreamReceiver, error) {
-	// Check for receive error
+func (c *PacketClient) CallStream(ctx context.Context, methodIndex uint32, payload []byte) (*StreamReceiver, error) {
 	c.recvErrMu.RLock()
 	if c.recvErr != nil {
 		err := c.recvErr
@@ -529,12 +355,11 @@ func (c *ClientBase) CallStream(ctx context.Context, methodIndex uint32, payload
 	}
 	c.recvErrMu.RUnlock()
 
-	// Allocate request ID
 	c.mu.Lock()
 	requestID := c.nextID
 	c.nextID++
 
-	streamChan := make(chan streamResult, 16) // Buffer some stream items
+	streamChan := make(chan streamResult, 16)
 	req := &pendingRequest{
 		streamChan: streamChan,
 		isStream:   true,
@@ -542,14 +367,12 @@ func (c *ClientBase) CallStream(ctx context.Context, methodIndex uint32, payload
 	c.pending[requestID] = req
 	c.mu.Unlock()
 
-	// Build request message
 	var buf []byte
 	buf = append(buf, rpcTypeRequest)
 	EncodeLEB128(requestID, &buf)
 	EncodeLEB128(uint64(methodIndex), &buf)
 	buf = append(buf, payload...)
 
-	// Send request
 	if err := c.transport.Send(ctx, buf); err != nil {
 		c.mu.Lock()
 		delete(c.pending, requestID)
@@ -558,26 +381,195 @@ func (c *ClientBase) CallStream(ctx context.Context, methodIndex uint32, payload
 	}
 
 	return &StreamReceiver{
-		client:     c,
-		requestID:  requestID,
 		streamChan: streamChan,
 		ctx:        ctx,
+		cancelFunc: func() {
+			c.sendCancel(requestID)
+			c.mu.Lock()
+			delete(c.pending, requestID)
+			c.mu.Unlock()
+		},
 	}, nil
 }
 
-func (c *ClientBase) sendCancel(requestID uint64) {
+func (c *PacketClient) sendCancel(requestID uint64) {
 	var buf []byte
 	buf = append(buf, rpcTypeCancel)
 	EncodeLEB128(requestID, &buf)
-	// Best effort, ignore errors
 	_ = c.transport.Send(context.Background(), buf)
 }
 
 // ============================================================================
-// TCP Transport
+// PacketServer (adapter: PacketTransport -> ServerTransport)
 // ============================================================================
 
-// TCPTransport implements Transport over a TCP-like connection (net.Conn).
+// PacketServerCall represents a single incoming RPC request over a packet transport.
+type PacketServerCall struct {
+	methodIndex uint32
+	payload     []byte
+	transport   PacketTransport
+	callID      uint64
+	ctx         context.Context
+	cancel      context.CancelFunc
+}
+
+// MethodIndex returns the method index.
+func (c *PacketServerCall) MethodIndex() uint32 {
+	return c.methodIndex
+}
+
+// Payload returns the request payload.
+func (c *PacketServerCall) Payload() []byte {
+	return c.payload
+}
+
+// Context returns the context for this call.
+func (c *PacketServerCall) Context() context.Context {
+	return c.ctx
+}
+
+// SendResponse sends a unary response.
+func (c *PacketServerCall) SendResponse(payload []byte) error {
+	var buf []byte
+	buf = append(buf, rpcTypeResponse)
+	EncodeLEB128(c.callID, &buf)
+	buf = append(buf, payload...)
+	return c.transport.Send(context.Background(), buf)
+}
+
+// SendStreamItem sends a stream item.
+func (c *PacketServerCall) SendStreamItem(payload []byte) error {
+	var buf []byte
+	buf = append(buf, rpcTypeStreamItem)
+	EncodeLEB128(c.callID, &buf)
+	buf = append(buf, payload...)
+	return c.transport.Send(context.Background(), buf)
+}
+
+// SendStreamEnd signals the end of a stream.
+func (c *PacketServerCall) SendStreamEnd() error {
+	var buf []byte
+	buf = append(buf, rpcTypeStreamEnd)
+	EncodeLEB128(c.callID, &buf)
+	return c.transport.Send(context.Background(), buf)
+}
+
+// SendError sends an error response.
+func (c *PacketServerCall) SendError(code uint32, message string) error {
+	var buf []byte
+	buf = append(buf, rpcTypeError)
+	EncodeLEB128(c.callID, &buf)
+	EncodeLEB128(uint64(code), &buf)
+	EncodeString(message, &buf)
+	return c.transport.Send(context.Background(), buf)
+}
+
+// PacketServer demultiplexes RPC calls from a PacketTransport.
+// Implements ServerTransport.
+type PacketServer struct {
+	transport   PacketTransport
+	callChan    chan ServerCall
+	mu          sync.Mutex
+	activeCalls map[uint64]context.CancelFunc
+}
+
+// NewPacketServer creates a new PacketServer.
+func NewPacketServer(transport PacketTransport) *PacketServer {
+	return &PacketServer{
+		transport:   transport,
+		callChan:    make(chan ServerCall, 64),
+		activeCalls: make(map[uint64]context.CancelFunc),
+	}
+}
+
+// Run runs the server's receive loop. Must be called concurrently with Accept.
+func (s *PacketServer) Run(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		data, err := s.transport.Recv(ctx)
+		if err != nil {
+			return err
+		}
+
+		buf := data
+		if len(buf) == 0 {
+			continue
+		}
+		msgType := buf[0]
+		buf = buf[1:]
+
+		callID, err := DecodeLEB128(&buf)
+		if err != nil {
+			continue
+		}
+
+		switch msgType {
+		case rpcTypeRequest:
+			methodIndex, err := DecodeLEB128(&buf)
+			if err != nil {
+				callCtx, callCancel := context.WithCancel(ctx)
+				call := &PacketServerCall{
+					transport: s.transport,
+					callID:    callID,
+					ctx:       callCtx,
+					cancel:    callCancel,
+				}
+				call.SendError(ErrCodeDecodeError, "failed to decode method index")
+				callCancel()
+				continue
+			}
+
+			callCtx, callCancel := context.WithCancel(ctx)
+			call := &PacketServerCall{
+				methodIndex: uint32(methodIndex),
+				payload:     buf,
+				transport:   s.transport,
+				callID:      callID,
+				ctx:         callCtx,
+				cancel:      callCancel,
+			}
+
+			s.mu.Lock()
+			s.activeCalls[callID] = callCancel
+			s.mu.Unlock()
+
+			select {
+			case s.callChan <- call:
+			case <-ctx.Done():
+				callCancel()
+				return ctx.Err()
+			}
+		case rpcTypeCancel:
+			s.mu.Lock()
+			if cancel, ok := s.activeCalls[callID]; ok {
+				cancel()
+				delete(s.activeCalls, callID)
+			}
+			s.mu.Unlock()
+		}
+	}
+}
+
+// Accept waits for and returns the next incoming RPC call.
+func (s *PacketServer) Accept(ctx context.Context) (ServerCall, error) {
+	select {
+	case call := <-s.callChan:
+		return call, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// ============================================================================
+// TCP PacketTransport
+// ============================================================================
+
+// TCPTransport implements PacketTransport over a TCP-like connection (net.Conn).
 // It uses LEB128 length-prefix framing as per the RPC transport spec.
 type TCPTransport struct {
 	conn interface {
@@ -601,7 +593,6 @@ func (t *TCPTransport) Send(ctx context.Context, data []byte) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
 
-	// Write length prefix as LEB128
 	var lenBuf []byte
 	EncodeLEB128(uint64(len(data)), &lenBuf)
 	if _, err := t.conn.Write(lenBuf); err != nil {
@@ -616,13 +607,11 @@ func (t *TCPTransport) Recv(ctx context.Context) ([]byte, error) {
 	t.readMu.Lock()
 	defer t.readMu.Unlock()
 
-	// Read length prefix as LEB128
 	length, err := t.readLEB128()
 	if err != nil {
 		return nil, err
 	}
 
-	// Read data
 	data := make([]byte, length)
 	if _, err := t.readFull(data); err != nil {
 		return nil, err

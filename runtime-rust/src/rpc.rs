@@ -36,6 +36,19 @@ impl<F: FnOnce()> Drop for OnDrop<F> {
     }
 }
 
+/// Spawns a local async task that can be canceled. Used by generated server code.
+///
+/// The `cancel_rx` is signaled when the client sends a CANCEL message for this call.
+/// When canceled, the handler future is dropped (triggering any drop guards).
+pub fn spawn_cancellable(cancel_rx: oneshot::Receiver<()>, fut: impl Future<Output = ()> + 'static) {
+    tokio::task::spawn_local(async move {
+        tokio::select! {
+            _ = fut => {}
+            _ = cancel_rx => {}
+        }
+    });
+}
+
 // ============================================================================
 // RPC Errors
 // ============================================================================
@@ -106,24 +119,73 @@ const RPC_TYPE_REQUEST: u8 = 0x80;
 const RPC_TYPE_CANCEL: u8 = 0x81;
 
 // ============================================================================
-// Transport
+// High-level Transport Interfaces
 // ============================================================================
 
-/// Transport trait for sending and receiving binary messages.
-pub trait Transport {
-    /// Sends a binary message.
-    fn send(&self, data: Vec<u8>) -> impl Future<Output = Result<(), RpcError>>;
-    /// Receives a binary message.
-    fn recv(&self) -> impl Future<Output = Result<Vec<u8>, RpcError>>;
+/// High-level client transport trait.
+///
+/// Provides per-call RPC operations. Generated client code uses this trait.
+/// Implementations include [`PacketClient`] (for packet-based transports like TCP)
+/// and HTTP clients.
+pub trait ClientTransport {
+    /// Makes a unary RPC call.
+    fn call_unary(&self, method_index: u32, payload: Vec<u8>) -> impl Future<Output = Result<Vec<u8>, RpcError>>;
+
+    /// Makes a streaming RPC call. Returns a stream receiver.
+    fn call_stream(&self, method_index: u32, payload: Vec<u8>) -> impl Future<Output = Result<StreamReceiver, RpcError>>;
+}
+
+impl<T: ClientTransport> ClientTransport for Rc<T> {
+    fn call_unary(&self, method_index: u32, payload: Vec<u8>) -> impl Future<Output = Result<Vec<u8>, RpcError>> {
+        (**self).call_unary(method_index, payload)
+    }
+
+    fn call_stream(&self, method_index: u32, payload: Vec<u8>) -> impl Future<Output = Result<StreamReceiver, RpcError>> {
+        (**self).call_stream(method_index, payload)
+    }
+}
+
+/// High-level server transport trait.
+///
+/// Accepts incoming RPC calls. Generated server code uses this trait.
+/// Implementations include [`PacketServer`] (for packet-based transports like TCP)
+/// and HTTP servers.
+pub trait ServerTransport {
+    /// The type of incoming call.
+    type Call: ServerCall;
+
+    /// Accepts the next incoming RPC call.
+    fn accept(&self) -> impl Future<Output = Result<Self::Call, RpcError>>;
+}
+
+/// A single incoming RPC request (server-side).
+pub trait ServerCall {
+    /// Returns the method index.
+    fn method_index(&self) -> u32;
+
+    /// Returns the request payload.
+    fn payload(&self) -> &[u8];
+
+    /// Takes the cancellation receiver for this call.
+    fn take_cancel_rx(&mut self) -> oneshot::Receiver<()>;
+
+    /// Sends a unary response. Consumes the call.
+    fn send_response(self, payload: Vec<u8>) -> impl Future<Output = Result<(), RpcError>>;
+
+    /// Converts this call into a stream sender for streaming responses.
+    fn into_stream_sender(self) -> StreamSenderBase;
+
+    /// Sends an error response. Consumes the call.
+    fn send_error(self, code: u32, message: &str) -> impl Future<Output = Result<(), RpcError>>;
 }
 
 // ============================================================================
-// Server Infrastructure
+// Stream Sender (server-side)
 // ============================================================================
 
 /// Stream sender for streaming responses (server-side, typed).
 ///
-/// Wraps a `ServerStreamSender` to provide typed sending.
+/// Wraps a `StreamSenderBase` to provide typed sending.
 pub struct StreamSender<T: Encode> {
     base: StreamSenderBase,
     _phantom: PhantomData<T>,
@@ -154,33 +216,37 @@ impl<T: Encode> StreamSender<T> {
     }
 }
 
-/// Type alias for unary method handlers.
-type UnaryHandler = Box<dyn Fn(Vec<u8>) -> std::pin::Pin<Box<dyn Future<Output = Result<Vec<u8>, RpcError>>>>>;
-
-/// Type alias for streaming method handlers.
-/// Stream handlers do not return a Result - errors must be reported via ServerStreamSender::error.
-type StreamHandler = Box<dyn Fn(Vec<u8>, StreamSenderBase) -> std::pin::Pin<Box<dyn Future<Output = ()>>>>;
-
-/// Method handler enum.
-enum MethodHandler {
-    Unary(UnaryHandler),
-    Stream(StreamHandler),
-}
-
-/// Stream sender for server-side streaming responses.
-/// Sends items immediately to the transport. Sends StreamEnd on drop.
+/// Stream sender for server-side streaming responses (untyped).
+///
+/// Sends stream items, errors, and end-of-stream signals through the transport.
+/// Sends StreamEnd on drop if not already finished.
+///
+/// The sender uses a channel that carries "stream messages" — each message is
+/// a framed payload with a type tag:
+/// - `[STREAM_ITEM] [body]`
+/// - `[STREAM_END]`
+/// - `[ERROR] [code: LEB128] [message: string]`
+///
+/// The receiver of this channel is responsible for further framing (e.g., adding
+/// call_id for packet transports).
 pub struct StreamSenderBase {
-    call_id: u64,
     tx: mpsc::Sender<Vec<u8>>,
     finished: bool,
 }
 
 impl StreamSenderBase {
-    /// Sends a stream item (already encoded).
+    /// Creates a new stream sender base.
+    pub fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
+        Self { tx, finished: false }
+    }
+
+    /// Sends a stream item (already encoded payload).
     pub async fn send(&self, payload: Vec<u8>) -> Result<(), RpcError> {
-        let packet = Self::make_stream_item_packet(self.call_id, payload);
+        let mut buf = Vec::new();
+        buf.push(RPC_TYPE_STREAM_ITEM);
+        buf.extend_from_slice(&payload);
         self.tx
-            .send(packet)
+            .send(buf)
             .await
             .map_err(|_| RpcError::new(0, "transport closed"))
     }
@@ -189,262 +255,32 @@ impl StreamSenderBase {
     /// After calling this, no StreamEnd will be sent on drop.
     pub async fn error(mut self, code: u32, message: &str) {
         self.finished = true;
-        let packet = Self::make_error_packet(self.call_id, code, message);
-        let _ = self.tx.send(packet).await;
-    }
-
-    fn make_stream_item_packet(request_id: u64, payload: Vec<u8>) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.push(RPC_TYPE_STREAM_ITEM);
-        encode_leb128_u64(request_id, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf
-    }
-
-    fn make_stream_end_packet(request_id: u64) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.push(RPC_TYPE_STREAM_END);
-        encode_leb128_u64(request_id, &mut buf);
-        buf
-    }
-
-    fn make_error_packet(request_id: u64, code: u32, message: &str) -> Vec<u8> {
         let mut buf = Vec::new();
         buf.push(RPC_TYPE_ERROR);
-        encode_leb128_u64(request_id, &mut buf);
         encode_leb128_u64(code as u64, &mut buf);
         encode_leb128_u64(message.len() as u64, &mut buf);
         buf.extend_from_slice(message.as_bytes());
-        buf
+        let _ = self.tx.send(buf).await;
     }
 }
 
 impl Drop for StreamSenderBase {
     fn drop(&mut self) {
         if !self.finished {
-            let packet = Self::make_stream_end_packet(self.call_id);
-            let _ = self.tx.try_send(packet);
+            let mut buf = Vec::new();
+            buf.push(RPC_TYPE_STREAM_END);
+            let _ = self.tx.try_send(buf);
         }
     }
 }
 
-/// Server base providing common server functionality.
-pub struct ServerBase<Tr: Transport> {
-    transport: Tr,
-    handlers: HashMap<u32, MethodHandler>,
+/// Stream receiver for streaming responses (client-side).
+///
+/// Cancels the stream on drop if not already closed.
+pub struct StreamReceiver {
+    rx: mpsc::Receiver<StreamEvent>,
+    cancel_tx: Option<oneshot::Sender<()>>,
 }
-
-impl<Tr: Transport> ServerBase<Tr> {
-    /// Creates a new server base.
-    pub fn new(transport: Tr) -> Self {
-        Self {
-            transport,
-            handlers: HashMap::new(),
-        }
-    }
-
-    /// Registers a unary method handler.
-    pub fn register_unary<F, Fut>(&mut self, method_index: u32, handler: F)
-    where
-        F: Fn(Vec<u8>) -> Fut + 'static,
-        Fut: Future<Output = Result<Vec<u8>, RpcError>> + 'static,
-    {
-        self.handlers.insert(
-            method_index,
-            MethodHandler::Unary(Box::new(move |payload| Box::pin(handler(payload)))),
-        );
-    }
-
-    /// Registers a streaming method handler.
-    ///
-    /// Stream handlers do not return a Result. Errors must be reported by calling
-    /// `stream.error()`. If the handler returns normally without calling
-    /// `error`, a StreamEnd message is sent automatically when the
-    /// stream sender is dropped.
-    pub fn register_stream<F, Fut>(&mut self, method_index: u32, handler: F)
-    where
-        F: Fn(Vec<u8>, StreamSenderBase) -> Fut + 'static,
-        Fut: Future<Output = ()> + 'static,
-    {
-        self.handlers.insert(
-            method_index,
-            MethodHandler::Stream(Box::new(move |payload, stream| Box::pin(handler(payload, stream)))),
-        );
-    }
-
-    /// Serves requests until the transport is closed or an error occurs.
-    ///
-    /// This function must be run on a single-threaded (local) tokio runtime.
-    /// When this future is dropped, all active request handlers are aborted.
-    pub async fn serve(self) -> Result<(), RpcError> {
-        use tokio::task::JoinHandle;
-
-        let handlers = Rc::new(self.handlers);
-
-        // Single channel for all outgoing packets
-        let (tx_send, mut tx_recv) = mpsc::channel::<Vec<u8>>(64);
-
-        // Track active requests for cancellation
-        let active_requests: Rc<RefCell<HashMap<u64, JoinHandle<()>>>> = Rc::new(RefCell::new(HashMap::new()));
-
-        // Guard to abort all active requests when serve() is dropped
-        let _guard = OnDrop::new({
-            let active_requests = active_requests.clone();
-            move || {
-                for (_, handle) in active_requests.borrow().iter() {
-                    handle.abort();
-                }
-            }
-        });
-
-        // Receive loop - runs until transport error
-        let rx_loop = async {
-            loop {
-                let data = self.transport.recv().await?;
-
-                let mut buf = data.as_slice();
-
-                // Decode message type
-                if buf.is_empty() {
-                    continue; // Invalid message, ignore
-                }
-                let msg_type = buf[0];
-                buf = &buf[1..];
-
-                // Decode call ID
-                let call_id = match decode_leb128_u64(&mut buf) {
-                    Ok(id) => id,
-                    Err(_) => continue, // Invalid message, ignore
-                };
-
-                match msg_type {
-                    RPC_TYPE_REQUEST => {
-                        // Decode method index
-                        let method_index = match decode_leb128_u64(&mut buf) {
-                            Ok(idx) => idx as u32,
-                            Err(_) => {
-                                let _ = tx_send
-                                    .send(Self::make_error_packet(
-                                        call_id,
-                                        ERR_CODE_DECODE_ERROR,
-                                        "failed to decode method index",
-                                    ))
-                                    .await;
-                                continue;
-                            }
-                        };
-
-                        // Look up the handler
-                        let handler = match handlers.get(&method_index) {
-                            Some(h) => h,
-                            None => {
-                                let _ = tx_send
-                                    .send(Self::make_error_packet(
-                                        call_id,
-                                        ERR_CODE_UNKNOWN_METHOD,
-                                        "unknown method",
-                                    ))
-                                    .await;
-                                continue;
-                            }
-                        };
-
-                        let payload = buf.to_vec();
-                        let tx_send = tx_send.clone();
-
-                        // Spawn handler in a separate task for cancellation support
-                        let handle = match handler {
-                            MethodHandler::Unary(handler) => {
-                                let fut = handler(payload);
-                                let active_requests = active_requests.clone();
-                                tokio::task::spawn_local(async move {
-                                    match fut.await {
-                                        Ok(response) => {
-                                            let _ = tx_send.send(Self::make_response_packet(call_id, response)).await;
-                                        }
-                                        Err(e) => {
-                                            let _ = tx_send
-                                                .send(Self::make_error_packet(
-                                                    call_id,
-                                                    ERR_CODE_HANDLER_ERROR,
-                                                    &e.message,
-                                                ))
-                                                .await;
-                                        }
-                                    }
-                                    // Remove from active requests
-                                    active_requests.borrow_mut().remove(&call_id);
-                                })
-                            }
-                            MethodHandler::Stream(handler) => {
-                                let stream = StreamSenderBase {
-                                    call_id,
-                                    tx: tx_send.clone(),
-                                    finished: false,
-                                };
-                                let fut = handler(payload, stream);
-                                let active_requests = active_requests.clone();
-                                tokio::task::spawn_local(async move {
-                                    fut.await;
-                                    // StreamEnd sent by ServerStreamSender drop
-                                    // Remove from active requests
-                                    active_requests.borrow_mut().remove(&call_id);
-                                })
-                            }
-                        };
-
-                        // Track the request
-                        active_requests.borrow_mut().insert(call_id, handle);
-                    }
-                    RPC_TYPE_CANCEL => {
-                        // Cancel the request if it exists
-                        if let Some(handle) = active_requests.borrow_mut().remove(&call_id) {
-                            handle.abort();
-                        }
-                    }
-                    _ => {
-                        // Unknown message type, ignore
-                    }
-                }
-            }
-            #[allow(unreachable_code)]
-            Ok::<(), RpcError>(())
-        };
-
-        // Send loop - runs until channel closed or transport error
-        let tx_loop = async {
-            while let Some(packet) = tx_recv.recv().await {
-                self.transport.send(packet).await?;
-            }
-            Ok::<(), RpcError>(())
-        };
-
-        // Run both loops, return first error
-        tokio::try_join!(rx_loop, tx_loop).map(|_| ())
-    }
-
-    fn make_response_packet(request_id: u64, payload: Vec<u8>) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.push(RPC_TYPE_RESPONSE);
-        encode_leb128_u64(request_id, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf
-    }
-
-    fn make_error_packet(request_id: u64, code: u32, message: &str) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.push(RPC_TYPE_ERROR);
-        encode_leb128_u64(request_id, &mut buf);
-        encode_leb128_u64(code as u64, &mut buf);
-        encode_leb128_u64(message.len() as u64, &mut buf);
-        buf.extend_from_slice(message.as_bytes());
-        buf
-    }
-}
-
-// ============================================================================
-// Client Infrastructure
-// ============================================================================
 
 /// Stream item from server - either data or error.
 enum StreamEvent {
@@ -452,6 +288,48 @@ enum StreamEvent {
     End,
     Error(RpcError),
 }
+
+impl StreamReceiver {
+    /// Receives the next item from the stream.
+    pub async fn recv(&mut self) -> Result<Vec<u8>, RpcError> {
+        match self.rx.recv().await {
+            Some(StreamEvent::Item(data)) => Ok(data),
+            Some(StreamEvent::End) => Err(RpcError::stream_closed()),
+            Some(StreamEvent::Error(e)) => Err(e),
+            None => Err(RpcError::stream_closed()),
+        }
+    }
+}
+
+impl Drop for StreamReceiver {
+    fn drop(&mut self) {
+        // Signal cancellation
+        if let Some(tx) = self.cancel_tx.take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+// ============================================================================
+// PacketTransport (low-level)
+// ============================================================================
+
+/// Low-level packet transport trait for sending and receiving binary messages.
+///
+/// This is used for transports like TCP, WebSocket, and serial that provide
+/// a bidirectional stream of discrete messages. The multiplexing of multiple
+/// RPC calls over a single connection is handled by [`PacketClient`] and
+/// [`PacketServer`], which wrap a `PacketTransport`.
+pub trait PacketTransport {
+    /// Sends a binary message.
+    fn send(&self, data: Vec<u8>) -> impl Future<Output = Result<(), RpcError>>;
+    /// Receives a binary message.
+    fn recv(&self) -> impl Future<Output = Result<Vec<u8>, RpcError>>;
+}
+
+// ============================================================================
+// PacketClient (adapter: PacketTransport -> ClientTransport)
+// ============================================================================
 
 /// Pending request tracking.
 enum PendingRequest {
@@ -463,8 +341,11 @@ enum PendingRequest {
     },
 }
 
-/// Client base providing common client functionality.
-pub struct ClientBase<Tr: Transport> {
+/// Client adapter that multiplexes RPC calls over a [`PacketTransport`].
+///
+/// Implements [`ClientTransport`] by handling call ID allocation, request/response
+/// matching, and cancellation over a single packet-based connection.
+pub struct PacketClient<Tr: PacketTransport> {
     transport: Tr,
     next_id: RefCell<u64>,
     pending: Rc<RefCell<HashMap<u64, PendingRequest>>>,
@@ -472,8 +353,8 @@ pub struct ClientBase<Tr: Transport> {
     tx_recv: RefCell<Option<mpsc::Receiver<Vec<u8>>>>,
 }
 
-impl<Tr: Transport> ClientBase<Tr> {
-    /// Creates a new client base.
+impl<Tr: PacketTransport> PacketClient<Tr> {
+    /// Creates a new packet client.
     pub fn new(transport: Tr) -> Self {
         let (tx_send, tx_recv) = mpsc::channel(64);
         Self {
@@ -595,11 +476,10 @@ impl<Tr: Transport> ClientBase<Tr> {
         // Run both loops, return first error
         tokio::try_join!(rx_loop, tx_loop).map(|_| ())
     }
+}
 
-    /// Makes a unary RPC call.
-    ///
-    /// If this future is dropped before completion, a cancel message is sent.
-    pub async fn call_unary(&self, method_index: u32, payload: Vec<u8>) -> Result<Vec<u8>, RpcError> {
+impl<Tr: PacketTransport> ClientTransport for PacketClient<Tr> {
+    async fn call_unary(&self, method_index: u32, payload: Vec<u8>) -> Result<Vec<u8>, RpcError> {
         // Allocate request ID
         let request_id = {
             let mut next_id = self.next_id.borrow_mut();
@@ -648,8 +528,7 @@ impl<Tr: Transport> ClientBase<Tr> {
         result
     }
 
-    /// Makes a streaming RPC call.
-    pub async fn call_stream(&self, method_index: u32, payload: Vec<u8>) -> Result<StreamReceiver, RpcError> {
+    async fn call_stream(&self, method_index: u32, payload: Vec<u8>) -> Result<StreamReceiver, RpcError> {
         // Allocate request ID
         let request_id = {
             let mut next_id = self.next_id.borrow_mut();
@@ -679,51 +558,227 @@ impl<Tr: Transport> ClientBase<Tr> {
             return Err(RpcError::new(0, "transport closed"));
         }
 
+        // Create cancel channel
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+
+        // Spawn task to handle cancellation
+        {
+            let tx_send = self.tx_send.clone();
+            let pending = self.pending.clone();
+            tokio::task::spawn_local(async move {
+                if cancel_rx.await.is_ok() {
+                    pending.borrow_mut().remove(&request_id);
+                    let mut buf = Vec::new();
+                    buf.push(RPC_TYPE_CANCEL);
+                    encode_leb128_u64(request_id, &mut buf);
+                    let _ = tx_send.try_send(buf);
+                }
+            });
+        }
+
         Ok(StreamReceiver {
-            request_id,
-            stream_rx,
-            tx_send: self.tx_send.clone(),
-            pending: self.pending.clone(),
+            rx: stream_rx,
+            cancel_tx: Some(cancel_tx),
         })
     }
 }
 
-/// Stream receiver for streaming responses.
-///
-/// Cancels the stream on drop if not already closed.
-pub struct StreamReceiver {
-    request_id: u64,
-    stream_rx: mpsc::Receiver<StreamEvent>,
-    tx_send: mpsc::Sender<Vec<u8>>,
-    pending: Rc<RefCell<HashMap<u64, PendingRequest>>>,
+// ============================================================================
+// PacketServer (adapter: PacketTransport -> ServerTransport)
+// ============================================================================
+
+/// A single incoming RPC request over a packet transport.
+pub struct PacketServerCall {
+    method_index: u32,
+    payload: Vec<u8>,
+    tx: mpsc::Sender<Vec<u8>>,
+    call_id: u64,
+    cancel_rx: oneshot::Receiver<()>,
 }
 
-impl StreamReceiver {
-    /// Receives the next item from the stream.
-    pub async fn recv(&mut self) -> Result<Vec<u8>, RpcError> {
-        match self.stream_rx.recv().await {
-            Some(StreamEvent::Item(data)) => Ok(data),
-            Some(StreamEvent::End) => Err(RpcError::stream_closed()),
-            Some(StreamEvent::Error(e)) => Err(e),
-            None => Err(RpcError::stream_closed()),
-        }
+impl ServerCall for PacketServerCall {
+    fn method_index(&self) -> u32 {
+        self.method_index
+    }
+
+    fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    fn take_cancel_rx(&mut self) -> oneshot::Receiver<()> {
+        let (_, dummy_rx) = oneshot::channel();
+        std::mem::replace(&mut self.cancel_rx, dummy_rx)
+    }
+
+    async fn send_response(self, payload: Vec<u8>) -> Result<(), RpcError> {
+        let mut buf = Vec::new();
+        buf.push(RPC_TYPE_RESPONSE);
+        encode_leb128_u64(self.call_id, &mut buf);
+        buf.extend_from_slice(&payload);
+        self.tx
+            .send(buf)
+            .await
+            .map_err(|_| RpcError::new(0, "transport closed"))
+    }
+
+    fn into_stream_sender(self) -> StreamSenderBase {
+        // Create a forwarding channel that prepends call_id to each stream message
+        let (stream_tx, mut stream_rx) = mpsc::channel::<Vec<u8>>(16);
+        let out_tx = self.tx;
+        let call_id = self.call_id;
+        tokio::task::spawn_local(async move {
+            while let Some(msg) = stream_rx.recv().await {
+                // Prepend call_id after the message type byte
+                let mut buf = Vec::new();
+                buf.push(msg[0]); // message type
+                encode_leb128_u64(call_id, &mut buf);
+                buf.extend_from_slice(&msg[1..]); // rest of payload
+                if out_tx.send(buf).await.is_err() {
+                    break;
+                }
+            }
+        });
+        StreamSenderBase::new(stream_tx)
+    }
+
+    async fn send_error(self, code: u32, message: &str) -> Result<(), RpcError> {
+        let mut buf = Vec::new();
+        buf.push(RPC_TYPE_ERROR);
+        encode_leb128_u64(self.call_id, &mut buf);
+        encode_leb128_u64(code as u64, &mut buf);
+        encode_leb128_u64(message.len() as u64, &mut buf);
+        buf.extend_from_slice(message.as_bytes());
+        self.tx
+            .send(buf)
+            .await
+            .map_err(|_| RpcError::new(0, "transport closed"))
     }
 }
 
-impl Drop for StreamReceiver {
-    fn drop(&mut self) {
-        // Remove from pending and send cancel if still active
-        if self.pending.borrow_mut().remove(&self.request_id).is_some() {
-            let mut buf = Vec::new();
-            buf.push(RPC_TYPE_CANCEL);
-            encode_leb128_u64(self.request_id, &mut buf);
-            let _ = self.tx_send.try_send(buf);
+/// Server adapter that demultiplexes RPC calls from a [`PacketTransport`].
+///
+/// Implements [`ServerTransport`] by handling call ID parsing, cancellation,
+/// and concurrent request management over a single packet-based connection.
+pub struct PacketServer<Tr: PacketTransport> {
+    transport: Tr,
+    call_rx: RefCell<mpsc::Receiver<PacketServerCall>>,
+    call_tx: mpsc::Sender<PacketServerCall>,
+    // Channel for outgoing packets
+    out_tx: mpsc::Sender<Vec<u8>>,
+    out_rx: RefCell<Option<mpsc::Receiver<Vec<u8>>>>,
+    // Active call cancel senders, indexed by call ID
+    cancel_txs: RefCell<HashMap<u64, oneshot::Sender<()>>>,
+}
+
+impl<Tr: PacketTransport> PacketServer<Tr> {
+    /// Creates a new packet server.
+    pub fn new(transport: Tr) -> Self {
+        let (call_tx, call_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(64);
+        Self {
+            transport,
+            call_rx: RefCell::new(call_rx),
+            call_tx,
+            out_tx,
+            out_rx: RefCell::new(Some(out_rx)),
+            cancel_txs: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// Runs the server's receive and send loops.
+    ///
+    /// This function must be run concurrently with the code that calls `accept()`.
+    /// It runs until the transport is closed or an error occurs.
+    pub async fn run(&self) -> Result<(), RpcError> {
+        let mut out_rx = self.out_rx.borrow_mut().take().expect("run() called twice");
+
+        // Receive loop - reads packets and dispatches to accept()
+        let rx_loop = async {
+            loop {
+                let data = self.transport.recv().await?;
+
+                let mut buf = data.as_slice();
+
+                if buf.is_empty() {
+                    continue;
+                }
+                let msg_type = buf[0];
+                buf = &buf[1..];
+
+                let call_id = match decode_leb128_u64(&mut buf) {
+                    Ok(id) => id,
+                    Err(_) => continue,
+                };
+
+                match msg_type {
+                    RPC_TYPE_REQUEST => {
+                        let method_index = match decode_leb128_u64(&mut buf) {
+                            Ok(idx) => idx as u32,
+                            Err(_) => {
+                                let mut err_buf = Vec::new();
+                                err_buf.push(RPC_TYPE_ERROR);
+                                encode_leb128_u64(call_id, &mut err_buf);
+                                encode_leb128_u64(ERR_CODE_DECODE_ERROR as u64, &mut err_buf);
+                                let msg = "failed to decode method index";
+                                encode_leb128_u64(msg.len() as u64, &mut err_buf);
+                                err_buf.extend_from_slice(msg.as_bytes());
+                                let _ = self.out_tx.send(err_buf).await;
+                                continue;
+                            }
+                        };
+
+                        let (cancel_tx, cancel_rx) = oneshot::channel();
+                        let call = PacketServerCall {
+                            method_index,
+                            payload: buf.to_vec(),
+                            tx: self.out_tx.clone(),
+                            call_id,
+                            cancel_rx,
+                        };
+
+                        self.cancel_txs.borrow_mut().insert(call_id, cancel_tx);
+
+                        if self.call_tx.send(call).await.is_err() {
+                            break;
+                        }
+                    }
+                    RPC_TYPE_CANCEL => {
+                        if let Some(cancel_tx) = self.cancel_txs.borrow_mut().remove(&call_id) {
+                            let _ = cancel_tx.send(());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok::<(), RpcError>(())
+        };
+
+        // Send loop
+        let tx_loop = async {
+            while let Some(packet) = out_rx.recv().await {
+                self.transport.send(packet).await?;
+            }
+            Ok::<(), RpcError>(())
+        };
+
+        tokio::try_join!(rx_loop, tx_loop).map(|_| ())
+    }
+}
+
+impl<Tr: PacketTransport> ServerTransport for PacketServer<Tr> {
+    type Call = PacketServerCall;
+
+    async fn accept(&self) -> Result<PacketServerCall, RpcError> {
+        self.call_rx
+            .borrow_mut()
+            .recv()
+            .await
+            .ok_or_else(|| RpcError::new(0, "transport closed"))
     }
 }
 
 // ============================================================================
-// TCP Transport
+// TCP PacketTransport
 // ============================================================================
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -748,7 +803,7 @@ impl TcpTransport {
     }
 }
 
-impl Transport for TcpTransport {
+impl PacketTransport for TcpTransport {
     async fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
         let mut write = self.write.borrow_mut();
 

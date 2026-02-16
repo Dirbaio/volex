@@ -55,7 +55,7 @@ export class RpcError extends Error {
 // Transport
 // ============================================================================
 
-export interface Transport {
+export interface PacketTransport {
   send(data: Uint8Array): Promise<void>;
   recv(): Promise<Uint8Array>;
   close(): void;
@@ -65,7 +65,7 @@ export interface Transport {
 // TCP Transport (for Node.js)
 // ============================================================================
 
-export class TcpTransport implements Transport {
+export class TcpTransport implements PacketTransport {
   private socket: any; // net.Socket
   private buffer: Uint8Array = new Uint8Array(0);
   private waiters: Array<{
@@ -216,7 +216,16 @@ export class TcpTransport implements Transport {
 }
 
 // ============================================================================
-// Client Infrastructure
+// High-level Transport Interfaces
+// ============================================================================
+
+export interface ClientTransport {
+  callUnary(methodIndex: number, payload: Uint8Array): Promise<Uint8Array>;
+  callStream(methodIndex: number, payload: Uint8Array): Promise<StreamReceiver>;
+}
+
+// ============================================================================
+// PacketClient (adapter: PacketTransport -> ClientTransport)
 // ============================================================================
 
 type StreamEvent =
@@ -238,15 +247,15 @@ interface PendingStream {
 
 type PendingRequest = PendingUnary | PendingStream;
 
-export class ClientBase {
-  private transport: Transport;
+export class PacketClient implements ClientTransport {
+  private transport: PacketTransport;
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
   private running = false;
   private runPromise: Promise<void> | null = null;
   private recvError: Error | null = null;
 
-  constructor(transport: Transport) {
+  constructor(transport: PacketTransport) {
     this.transport = transport;
   }
 
@@ -451,14 +460,14 @@ export class StreamReceiver {
   private requestId: number;
   private pending: PendingStream;
   private allPending: Map<number, PendingRequest>;
-  private transport: Transport;
+  private transport: PacketTransport;
   private cancelled = false;
 
   constructor(
     requestId: number,
     pending: PendingStream,
     allPending: Map<number, PendingRequest>,
-    transport: Transport,
+    transport: PacketTransport,
   ) {
     this.requestId = requestId;
     this.pending = pending;

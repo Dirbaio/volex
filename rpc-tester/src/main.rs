@@ -20,6 +20,10 @@ struct Cli {
     #[arg(long, value_enum, required_unless_present = "all")]
     server: Option<Language>,
 
+    /// Transport to use
+    #[arg(long, value_enum, default_value = "tcp")]
+    transport: Transport,
+
     /// Run all client+server combinations
     #[arg(long)]
     all: bool,
@@ -42,31 +46,58 @@ impl Language {
     }
 }
 
-fn start_server(lang: Language) -> Result<(Child, String), String> {
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum, Debug)]
+pub enum Transport {
+    Tcp,
+    Http,
+}
+
+impl Transport {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Transport::Tcp => "tcp",
+            Transport::Http => "http",
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Transport::Tcp => "TCP",
+            Transport::Http => "HTTP",
+        }
+    }
+}
+
+fn start_server(lang: Language, transport: Transport) -> Result<(Child, String), String> {
     match lang {
-        Language::Go => lang_go::start_server(),
-        Language::Rust => lang_rust::start_server(),
+        Language::Go => lang_go::start_server(transport),
+        Language::Rust => lang_rust::start_server(transport),
         Language::Typescript => Err("TypeScript server not yet implemented".to_string()),
     }
 }
 
-fn run_client(lang: Language, addr: &str) -> Result<(), String> {
+fn run_client(lang: Language, addr: &str, transport: Transport) -> Result<(), String> {
     match lang {
-        Language::Go => lang_go::run_client(addr),
-        Language::Rust => lang_rust::run_client(addr),
-        Language::Typescript => lang_typescript::run_client(addr),
+        Language::Go => lang_go::run_client(addr, transport),
+        Language::Rust => lang_rust::run_client(addr, transport),
+        Language::Typescript => lang_typescript::run_client(addr, transport),
     }
 }
 
-fn run_test(client_lang: Language, server_lang: Language) -> Result<(), String> {
+fn run_test(client_lang: Language, server_lang: Language, transport: Transport) -> Result<(), String> {
     println!();
-    println!("=== {} client + {} server ===", client_lang.name(), server_lang.name());
+    println!(
+        "=== {} client + {} server ({}) ===",
+        client_lang.name(),
+        server_lang.name(),
+        transport.name()
+    );
 
     // Start the server
-    let (mut server, addr) = start_server(server_lang)?;
+    let (mut server, addr) = start_server(server_lang, transport)?;
 
     // Run the client tests
-    let result = run_client(client_lang, &addr);
+    let result = run_client(client_lang, &addr, transport);
 
     // Kill server
     let _ = server.kill();
@@ -95,7 +126,7 @@ fn main() {
     let mut failed_combos = Vec::new();
 
     for (client_lang, server_lang) in &combinations {
-        match run_test(*client_lang, *server_lang) {
+        match run_test(*client_lang, *server_lang, cli.transport) {
             Ok(()) => {
                 passed += 1;
             }

@@ -1,7 +1,7 @@
 // TypeScript RPC test harness client
 
 import * as net from 'net';
-import { TcpTransport, RpcError, ERR_CODE_HANDLER_ERROR } from 'volex/rpc';
+import { TcpTransport, PacketClient, RpcError, ERR_CODE_HANDLER_ERROR } from 'volex/rpc';
 import {
   TestServiceClient,
   EchoRequest,
@@ -385,13 +385,7 @@ async function testCancelWhileRecvWaiting(client: TestServiceClient): Promise<Te
   return ok();
 }
 
-async function main() {
-  const addr = process.env.SERVER_ADDR;
-  if (!addr) {
-    console.error('SERVER_ADDR environment variable not set');
-    process.exit(1);
-  }
-
+async function connectTcp(addr: string): Promise<{ client: TestServiceClient; close: () => void }> {
   const [host, portStr] = addr.split(':');
   const port = parseInt(portStr, 10);
 
@@ -402,18 +396,21 @@ async function main() {
   });
 
   const transport = new TcpTransport(socket);
-  const client = new TestServiceClient(transport);
+  const packetClient = new PacketClient(transport);
+  const client = new TestServiceClient(packetClient);
 
-  // Spawn the client's run loop
-  const runPromise = client.run().catch((e) => {
+  // Spawn the packet client's run loop
+  packetClient.run().catch((e: unknown) => {
     // Connection closed errors are expected at the end
     if (!(e instanceof Error && e.message.includes('closed'))) {
       console.error('Client error:', e);
     }
   });
 
-  console.log('Running TypeScript client tests...');
+  return { client, close: () => transport.close() };
+}
 
+async function runAllTests(client: TestServiceClient): Promise<boolean> {
   let allPassed = true;
 
   // Test echo
@@ -445,8 +442,40 @@ async function main() {
   allPassed = (await runTest('cancel_stream_request', () => testCancelStreamRequest(client))) && allPassed;
   allPassed = (await runTest('cancel_while_recv_waiting', () => testCancelWhileRecvWaiting(client))) && allPassed;
 
+  return allPassed;
+}
+
+async function main() {
+  const addr = process.env.SERVER_ADDR;
+  if (!addr) {
+    console.error('SERVER_ADDR environment variable not set');
+    process.exit(1);
+  }
+
+  const transportType = process.env.TRANSPORT || 'tcp';
+
+  let client: TestServiceClient;
+  let close: () => void;
+
+  switch (transportType) {
+    case 'tcp': {
+      const conn = await connectTcp(addr);
+      client = conn.client;
+      close = conn.close;
+      break;
+    }
+    case 'http':
+      throw new Error('HTTP client transport not yet implemented');
+    default:
+      throw new Error(`unknown transport: ${transportType}`);
+  }
+
+  console.log('Running TypeScript client tests...');
+
+  const allPassed = await runAllTests(client);
+
   // Close the connection
-  transport.close();
+  close();
 
   if (allPassed) {
     console.log('All tests passed!');

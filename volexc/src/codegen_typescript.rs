@@ -772,7 +772,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
         // Generate the client class
         writeln!(self.output, "/** Client for the {} service. */", service_name).unwrap();
         writeln!(self.output, "export class {}Client {{", service_name).unwrap();
-        writeln!(self.output, "  private base: __rpc.ClientBase;").unwrap();
+        writeln!(self.output, "  private transport: __rpc.ClientTransport;").unwrap();
         self.output.push('\n');
 
         // Constructor
@@ -782,19 +782,8 @@ impl<'a> TypeScriptCodeGenerator<'a> {
             service_name
         )
         .unwrap();
-        writeln!(self.output, "  constructor(transport: __rpc.Transport) {{").unwrap();
-        writeln!(self.output, "    this.base = new __rpc.ClientBase(transport);").unwrap();
-        writeln!(self.output, "  }}").unwrap();
-        self.output.push('\n');
-
-        // Run method
-        writeln!(
-            self.output,
-            "  /** Runs the client's receive loop. Must be spawned before making RPC calls. */"
-        )
-        .unwrap();
-        writeln!(self.output, "  async run(): Promise<void> {{").unwrap();
-        writeln!(self.output, "    return this.base.run();").unwrap();
+        writeln!(self.output, "  constructor(transport: __rpc.ClientTransport) {{").unwrap();
+        writeln!(self.output, "    this.transport = transport;").unwrap();
         writeln!(self.output, "  }}").unwrap();
         self.output.push('\n');
 
@@ -823,7 +812,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     // Make the call
                     writeln!(
                         self.output,
-                        "    const respBuf = await this.base.callUnary({}, reqBuf.toUint8Array());",
+                        "    const respBuf = await this.transport.callUnary({}, reqBuf.toUint8Array());",
                         index
                     )
                     .unwrap();
@@ -859,7 +848,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     // Make the call
                     writeln!(
                         self.output,
-                        "    const receiver = await this.base.callStream({}, reqBuf.toUint8Array());",
+                        "    const receiver = await this.transport.callStream({}, reqBuf.toUint8Array());",
                         index
                     )
                     .unwrap();

@@ -14,24 +14,42 @@ import (
 	volex "github.com/volex/runtime"
 )
 
+func connectTCP(t *testing.T, addr string, ctx context.Context) *gen.TestServiceClient {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	transport := volex.NewTCPTransport(conn)
+	packetClient := volex.NewPacketClient(transport)
+	go packetClient.Run(ctx)
+	return gen.NewTestServiceClient(packetClient)
+}
+
 func TestRPC(t *testing.T) {
 	addr := os.Getenv("SERVER_ADDR")
 	if addr == "" {
 		t.Fatal("SERVER_ADDR environment variable not set")
 	}
 
+	transportType := os.Getenv("TRANSPORT")
+	if transportType == "" {
+		transportType = "tcp"
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
+	var client *gen.TestServiceClient
+	switch transportType {
+	case "tcp":
+		client = connectTCP(t, addr, ctx)
+	case "http":
+		t.Fatal("HTTP client transport not yet implemented")
+	default:
+		t.Fatalf("unknown transport: %s", transportType)
 	}
-	defer conn.Close()
-
-	transport := volex.NewTCPTransport(conn)
-	client := gen.NewTestServiceClient(transport)
-	go client.Run(ctx)
 
 	// Test echo
 	t.Run("echo simple", func(t *testing.T) {

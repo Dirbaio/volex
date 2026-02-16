@@ -1387,120 +1387,94 @@ impl<'a> GoCodeGenerator<'a> {
             }
         }
 
-        // Generate the server struct
+        // Generate the server function
         writeln!(
             self.output,
-            "// {}Server handles incoming RPC requests for the {} service.",
-            service_name, service_name
-        )
-        .unwrap();
-        writeln!(self.output, "type {}Server struct {{", service_name).unwrap();
-        writeln!(self.output, "\tbase *__rt.ServerBase").unwrap();
-        writeln!(self.output, "\timpl {}", service_name).unwrap();
-        writeln!(self.output, "}}\n").unwrap();
-
-        // Generate server constructor
-        writeln!(
-            self.output,
-            "// New{}Server creates a new server for the {} service.",
+            "// Serve{} serves the {} service.",
             service_name, service_name
         )
         .unwrap();
         writeln!(
             self.output,
-            "func New{}Server(transport __rt.Transport, impl {}) *{}Server {{",
-            service_name, service_name, service_name
+            "func Serve{}(ctx context.Context, transport __rt.ServerTransport, impl {}) error {{",
+            service_name, service_name
         )
         .unwrap();
-        writeln!(self.output, "\ts := &{}Server{{", service_name).unwrap();
-        writeln!(self.output, "\t\tbase: __rt.NewServerBase(transport),").unwrap();
-        writeln!(self.output, "\t\timpl: impl,").unwrap();
-        writeln!(self.output, "\t}}").unwrap();
+        writeln!(self.output, "\tfor {{").unwrap();
+        writeln!(self.output, "\t\tcall, err := transport.Accept(ctx)").unwrap();
+        writeln!(self.output, "\t\tif err != nil {{").unwrap();
+        writeln!(self.output, "\t\t\treturn err").unwrap();
+        writeln!(self.output, "\t\t}}").unwrap();
+        writeln!(self.output, "\t\tgo func(call __rt.ServerCall) {{").unwrap();
+        writeln!(self.output, "\t\t\tswitch call.MethodIndex() {{").unwrap();
 
-        // Register handlers for each method
         for method in &s.methods {
             let method_name = to_pascal_case(&method.name.node);
             let index = method.index.node;
+
+            writeln!(self.output, "\t\t\tcase {}:", index).unwrap();
+            writeln!(self.output, "\t\t\t\tbuf := call.Payload()").unwrap();
             writeln!(
                 self.output,
-                "\ts.base.RegisterHandler({}, s.handle{})",
-                index, method_name
-            )
-            .unwrap();
-        }
-
-        writeln!(self.output, "\treturn s").unwrap();
-        writeln!(self.output, "}}\n").unwrap();
-
-        // Generate Serve method
-        writeln!(
-            self.output,
-            "// Serve starts serving requests. It runs until the context is canceled or an error occurs."
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "func (s *{}Server) Serve(ctx context.Context) error {{",
-            service_name
-        )
-        .unwrap();
-        writeln!(self.output, "\treturn s.base.Serve(ctx)").unwrap();
-        writeln!(self.output, "}}\n").unwrap();
-
-        // Generate handler methods for each service method
-        for method in &s.methods {
-            let method_name = to_pascal_case(&method.name.node);
-
-            writeln!(
-                self.output,
-                "func (s *{}Server) handle{}(ctx context.Context, payload []byte, sender *__rt.ResponseSender) error {{",
-                service_name, method_name
-            )
-            .unwrap();
-
-            // Decode the request
-            writeln!(self.output, "\tbuf := payload").unwrap();
-            writeln!(
-                self.output,
-                "\treq, err := {}",
+                "\t\t\t\treq, err := {}",
                 self.decode_for_service(&method.request.node, "&buf")
             )
             .unwrap();
-            writeln!(self.output, "\tif err != nil {{").unwrap();
-            writeln!(self.output, "\t\treturn err").unwrap();
-            writeln!(self.output, "\t}}").unwrap();
+            writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
+            writeln!(
+                self.output,
+                "\t\t\t\t\tcall.SendError(__rt.ErrCodeDecodeError, err.Error())"
+            )
+            .unwrap();
+            writeln!(self.output, "\t\t\t\t\treturn").unwrap();
+            writeln!(self.output, "\t\t\t\t}}").unwrap();
 
             match &method.response.node {
                 ServiceResponse::Unary(resp_ty) => {
-                    // Call the implementation
-                    writeln!(self.output, "\tresp, err := s.impl.{}(ctx, req)", method_name).unwrap();
-                    writeln!(self.output, "\tif err != nil {{").unwrap();
-                    writeln!(self.output, "\t\treturn err").unwrap();
-                    writeln!(self.output, "\t}}").unwrap();
-
-                    // Encode and send the response
-                    writeln!(self.output, "\tvar respBuf []byte").unwrap();
-                    self.encode_value_for_service("resp", resp_ty, 1, "respBuf");
-                    writeln!(self.output, "\treturn sender.SendResponse(respBuf)").unwrap();
-                }
-                ServiceResponse::Stream(_) => {
-                    // Create stream sender and call the implementation
+                    writeln!(self.output, "\t\t\t\tresp, err := impl.{}(call.Context(), req)", method_name).unwrap();
+                    writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
                     writeln!(
                         self.output,
-                        "\tstream := &{}{}ServerStream{{sender: sender}}",
+                        "\t\t\t\t\tcall.SendError(__rt.ErrCodeHandlerError, err.Error())"
+                    )
+                    .unwrap();
+                    writeln!(self.output, "\t\t\t\t\treturn").unwrap();
+                    writeln!(self.output, "\t\t\t\t}}").unwrap();
+                    writeln!(self.output, "\t\t\t\tvar respBuf []byte").unwrap();
+                    self.encode_value_for_service("resp", resp_ty, 4, "respBuf");
+                    writeln!(self.output, "\t\t\t\tcall.SendResponse(respBuf)").unwrap();
+                }
+                ServiceResponse::Stream(_) => {
+                    writeln!(
+                        self.output,
+                        "\t\t\t\tstream := &{}{}ServerStream{{call: call}}",
                         service_name, method_name
                     )
                     .unwrap();
-                    writeln!(self.output, "\terr = s.impl.{}(ctx, req, stream)", method_name).unwrap();
-                    writeln!(self.output, "\tif err != nil {{").unwrap();
-                    writeln!(self.output, "\t\treturn err").unwrap();
-                    writeln!(self.output, "\t}}").unwrap();
-                    writeln!(self.output, "\treturn sender.SendStreamEnd()").unwrap();
+                    writeln!(self.output, "\t\t\t\terr = impl.{}(call.Context(), req, stream)", method_name).unwrap();
+                    writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
+                    writeln!(
+                        self.output,
+                        "\t\t\t\t\tcall.SendError(__rt.ErrCodeHandlerError, err.Error())"
+                    )
+                    .unwrap();
+                    writeln!(self.output, "\t\t\t\t\treturn").unwrap();
+                    writeln!(self.output, "\t\t\t\t}}").unwrap();
+                    writeln!(self.output, "\t\t\t\tcall.SendStreamEnd()").unwrap();
                 }
             }
-
-            writeln!(self.output, "}}\n").unwrap();
         }
+
+        writeln!(self.output, "\t\t\tdefault:").unwrap();
+        writeln!(
+            self.output,
+            "\t\t\t\tcall.SendError(__rt.ErrCodeUnknownMethod, \"unknown method\")"
+        )
+        .unwrap();
+        writeln!(self.output, "\t\t\t}}").unwrap();
+        writeln!(self.output, "\t\t}}(call)").unwrap();
+        writeln!(self.output, "\t}}").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
 
         // Generate stream sender structs for streaming methods
         for method in &s.methods {
@@ -1514,7 +1488,7 @@ impl<'a> GoCodeGenerator<'a> {
                     service_name, method_name
                 )
                 .unwrap();
-                writeln!(self.output, "\tsender *__rt.ResponseSender").unwrap();
+                writeln!(self.output, "\tcall __rt.ServerCall").unwrap();
                 writeln!(self.output, "}}\n").unwrap();
 
                 writeln!(
@@ -1525,7 +1499,7 @@ impl<'a> GoCodeGenerator<'a> {
                 .unwrap();
                 writeln!(self.output, "\tvar buf []byte").unwrap();
                 self.encode_value_for_service("item", resp_ty, 1, "buf");
-                writeln!(self.output, "\treturn s.sender.SendStreamItem(buf)").unwrap();
+                writeln!(self.output, "\treturn s.call.SendStreamItem(buf)").unwrap();
                 writeln!(self.output, "}}\n").unwrap();
             }
         }
@@ -1538,7 +1512,7 @@ impl<'a> GoCodeGenerator<'a> {
         )
         .unwrap();
         writeln!(self.output, "type {}Client struct {{", service_name).unwrap();
-        writeln!(self.output, "\tbase *__rt.ClientBase").unwrap();
+        writeln!(self.output, "\ttransport __rt.ClientTransport").unwrap();
         writeln!(self.output, "}}\n").unwrap();
 
         // Generate client constructor
@@ -1550,33 +1524,13 @@ impl<'a> GoCodeGenerator<'a> {
         .unwrap();
         writeln!(
             self.output,
-            "func New{}Client(transport __rt.Transport) *{}Client {{",
+            "func New{}Client(transport __rt.ClientTransport) *{}Client {{",
             service_name, service_name
         )
         .unwrap();
         writeln!(self.output, "\treturn &{}Client{{", service_name).unwrap();
-        writeln!(self.output, "\t\tbase: __rt.NewClientBase(transport),").unwrap();
+        writeln!(self.output, "\t\ttransport: transport,").unwrap();
         writeln!(self.output, "\t}}").unwrap();
-        writeln!(self.output, "}}\n").unwrap();
-
-        // Generate Run method
-        writeln!(
-            self.output,
-            "// Run runs the client's receive loop until the context is canceled or the transport fails."
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "// This method blocks and must be called before making any RPC calls."
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "func (c *{}Client) Run(ctx context.Context) error {{",
-            service_name
-        )
-        .unwrap();
-        writeln!(self.output, "\treturn c.base.Run(ctx)").unwrap();
         writeln!(self.output, "}}\n").unwrap();
 
         // Generate client methods
@@ -1604,7 +1558,7 @@ impl<'a> GoCodeGenerator<'a> {
                     // Make the call
                     writeln!(
                         self.output,
-                        "\trespBuf, err := c.base.CallUnary(ctx, {}, reqBuf)",
+                        "\trespBuf, err := c.transport.CallUnary(ctx, {}, reqBuf)",
                         index
                     )
                     .unwrap();
@@ -1650,7 +1604,7 @@ impl<'a> GoCodeGenerator<'a> {
                     // Make the call
                     writeln!(
                         self.output,
-                        "\treceiver, err := c.base.CallStream(ctx, {}, reqBuf)",
+                        "\treceiver, err := c.transport.CallStream(ctx, {}, reqBuf)",
                         index
                     )
                     .unwrap();

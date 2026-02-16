@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use generated::*;
 use tokio::net::TcpStream;
-use volex::rpc::{ERR_CODE_HANDLER_ERROR, TcpTransport};
+use volex::rpc::{ERR_CODE_HANDLER_ERROR, PacketClient, TcpTransport};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -22,69 +22,86 @@ fn run_test(name: &str, result: TestResult) {
     }
 }
 
+async fn connect_tcp(addr: &str) -> Result<Client, Box<dyn std::error::Error>> {
+    let stream = TcpStream::connect(addr).await?;
+    let transport = TcpTransport::new(stream);
+    let packet_client = Rc::new(PacketClient::new(transport));
+    let client = Rc::new(TestServiceClient::new(packet_client.clone()));
+
+    // Spawn the packet client's run loop
+    tokio::task::spawn_local({
+        let packet_client = packet_client.clone();
+        async move {
+            if let Err(e) = packet_client.run().await {
+                eprintln!("Client error: {}", e);
+            }
+        }
+    });
+
+    Ok(client)
+}
+
+type Client = Rc<TestServiceClient<Rc<PacketClient<TcpTransport>>>>;
+
+async fn run_tests(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Running Rust client tests...");
+
+    // Test echo
+    run_test("echo_simple", test_echo_simple(client).await);
+    run_test("echo_empty", test_echo_empty(client).await);
+    run_test("echo_unicode", test_echo_unicode(client).await);
+
+    // Test streaming
+    run_test("stream_zero_items", test_stream_zero_items(client).await);
+    run_test("stream_one_item", test_stream_one_item(client).await);
+    run_test("stream_multiple_items", test_stream_multiple_items(client).await);
+
+    // Test error handling
+    run_test("error_unary_success", test_error_unary_success(client).await);
+    run_test("error_unary_failure", test_error_unary_failure(client).await);
+    run_test("error_stream_after_items", test_error_stream_after_items(client).await);
+
+    // Test multiple simultaneous streams
+    run_test(
+        "multiple_simultaneous_streams",
+        test_multiple_simultaneous_streams(client).await,
+    );
+
+    // Test non-message types
+    run_test("non-message_add", test_non_message_add(client).await);
+    run_test("non-message_add_zero", test_non_message_add_zero(client).await);
+    run_test(
+        "non-message_stream_strings",
+        test_non_message_stream_strings(client).await,
+    );
+
+    // Test cancellation
+    run_test("cancel_unary_request", test_cancel_unary_request(client).await);
+    run_test("cancel_stream_request", test_cancel_stream_request(client).await);
+
+    println!("All tests passed!");
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let addr = std::env::var("SERVER_ADDR").expect("SERVER_ADDR environment variable not set");
+    let transport = std::env::var("TRANSPORT").unwrap_or_else(|_| "tcp".to_string());
+
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
-            let addr = std::env::var("SERVER_ADDR").expect("SERVER_ADDR environment variable not set");
-
-            let stream = TcpStream::connect(&addr).await?;
-            let transport = TcpTransport::new(stream);
-            let client = Rc::new(TestServiceClient::new(transport));
-
-            // Spawn the client's run loop
-            tokio::task::spawn_local({
-                let client = client.clone();
-                async move {
-                    if let Err(e) = client.run().await {
-                        eprintln!("Client error: {}", e);
-                    }
+            match transport.as_str() {
+                "tcp" => {
+                    let client = connect_tcp(&addr).await?;
+                    run_tests(&client).await
                 }
-            });
-
-            println!("Running Rust client tests...");
-
-            // Test echo
-            run_test("echo_simple", test_echo_simple(&client).await);
-            run_test("echo_empty", test_echo_empty(&client).await);
-            run_test("echo_unicode", test_echo_unicode(&client).await);
-
-            // Test streaming
-            run_test("stream_zero_items", test_stream_zero_items(&client).await);
-            run_test("stream_one_item", test_stream_one_item(&client).await);
-            run_test("stream_multiple_items", test_stream_multiple_items(&client).await);
-
-            // Test error handling
-            run_test("error_unary_success", test_error_unary_success(&client).await);
-            run_test("error_unary_failure", test_error_unary_failure(&client).await);
-            run_test("error_stream_after_items", test_error_stream_after_items(&client).await);
-
-            // Test multiple simultaneous streams
-            run_test(
-                "multiple_simultaneous_streams",
-                test_multiple_simultaneous_streams(&client).await,
-            );
-
-            // Test non-message types
-            run_test("non-message_add", test_non_message_add(&client).await);
-            run_test("non-message_add_zero", test_non_message_add_zero(&client).await);
-            run_test(
-                "non-message_stream_strings",
-                test_non_message_stream_strings(&client).await,
-            );
-
-            // Test cancellation
-            run_test("cancel_unary_request", test_cancel_unary_request(&client).await);
-            run_test("cancel_stream_request", test_cancel_stream_request(&client).await);
-
-            println!("All tests passed!");
-            Ok::<(), Box<dyn std::error::Error>>(())
+                "http" => todo!("HTTP client transport not yet implemented"),
+                other => Err(format!("unknown transport: {}", other).into()),
+            }
         })
         .await
 }
-
-type Client = Rc<TestServiceClient<TcpTransport>>;
 
 async fn test_echo_simple(client: &Client) -> TestResult {
     let resp = client

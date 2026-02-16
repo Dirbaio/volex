@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"rpc_test/gen"
@@ -15,6 +17,7 @@ import (
 
 // TestServiceImpl implements the TestService interface
 type TestServiceImpl struct {
+	mu         sync.Mutex
 	lastStatus string
 }
 
@@ -71,20 +74,28 @@ func (s *TestServiceImpl) GetStrings(ctx context.Context, req uint32, stream gen
 }
 
 func (s *TestServiceImpl) SlowUnary(ctx context.Context, req gen.SlowRequest) (gen.SlowResponse, error) {
+	s.mu.Lock()
 	s.lastStatus = "slow_unary: started"
+	s.mu.Unlock()
 	// Wait for the specified delay, but respect context cancellation
 	select {
 	case <-time.After(time.Duration(req.DelayMs) * time.Millisecond):
+		s.mu.Lock()
 		s.lastStatus = "slow_unary: completed"
+		s.mu.Unlock()
 		return gen.SlowResponse{Completed: true}, nil
 	case <-ctx.Done():
+		s.mu.Lock()
 		s.lastStatus = "slow_unary: canceled"
+		s.mu.Unlock()
 		return gen.SlowResponse{}, ctx.Err()
 	}
 }
 
 func (s *TestServiceImpl) SlowStream(ctx context.Context, req gen.SlowRequest, stream gen.TestServiceSlowStreamStream) error {
+	s.mu.Lock()
 	s.lastStatus = "slow_stream: started"
+	s.mu.Unlock()
 	// Send items with delay between each, respecting cancellation
 	for i := uint32(0); ; i++ {
 		select {
@@ -97,17 +108,21 @@ func (s *TestServiceImpl) SlowStream(ctx context.Context, req gen.SlowRequest, s
 				return err
 			}
 		case <-ctx.Done():
+			s.mu.Lock()
 			s.lastStatus = "slow_stream: canceled"
+			s.mu.Unlock()
 			return ctx.Err()
 		}
 	}
 }
 
 func (s *TestServiceImpl) GetStatus(ctx context.Context, req gen.Empty) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.lastStatus, nil
 }
 
-func main() {
+func serveTCP() {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to listen: %v\n", err)
@@ -127,9 +142,26 @@ func main() {
 		go func(conn net.Conn) {
 			defer conn.Close()
 			transport := volex.NewTCPTransport(conn)
+			server := volex.NewPacketServer(transport)
 			impl := &TestServiceImpl{}
-			server := gen.NewTestServiceServer(transport, impl)
-			server.Serve(ctx)
+			go server.Run(ctx)
+			gen.ServeTestService(ctx, server, impl)
 		}(conn)
+	}
+}
+
+func main() {
+	transport := os.Getenv("TRANSPORT")
+	if transport == "" {
+		transport = "tcp"
+	}
+
+	switch transport {
+	case "tcp":
+		serveTCP()
+	case "http":
+		log.Fatal("HTTP server transport not yet implemented")
+	default:
+		log.Fatalf("unknown transport: %s", transport)
 	}
 }

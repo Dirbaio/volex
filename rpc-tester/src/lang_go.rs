@@ -1,9 +1,10 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
+use crate::Transport;
 use crate::common::{compile_schema, get_tester_dir};
 
-pub fn start_server() -> Result<(Child, String), String> {
+pub fn start_server(transport: Transport) -> Result<(Child, String), String> {
     let tester_dir = get_tester_dir();
     let go_harness_dir = tester_dir.join("harness/go");
     let generated_path = go_harness_dir.join("gen/generated.go");
@@ -29,6 +30,7 @@ pub fn start_server() -> Result<(Child, String), String> {
     println!("  Starting Go server...");
     let mut server = Command::new("./server")
         .current_dir(&go_harness_dir)
+        .env("TRANSPORT", transport.as_str())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -49,7 +51,7 @@ pub fn start_server() -> Result<(Child, String), String> {
     Ok((server, addr))
 }
 
-pub fn run_client(addr: &str) -> Result<(), String> {
+pub fn run_client(addr: &str, transport: Transport) -> Result<(), String> {
     let tester_dir = get_tester_dir();
     let go_harness_dir = tester_dir.join("harness/go");
     let generated_path = go_harness_dir.join("gen/generated.go");
@@ -66,6 +68,7 @@ pub fn run_client(addr: &str) -> Result<(), String> {
         .args(["test", "-v", "./cmd/client"])
         .current_dir(&go_harness_dir)
         .env("SERVER_ADDR", addr)
+        .env("TRANSPORT", transport.as_str())
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("go test: {}", e))?;
