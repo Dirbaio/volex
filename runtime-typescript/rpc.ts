@@ -435,7 +435,7 @@ export class PacketClient implements ClientTransport {
       throw new RpcError(0, (e as Error).message);
     }
 
-    return new StreamReceiver(
+    return new PacketStreamReceiver(
       requestId,
       pendingStream,
       this.pending,
@@ -456,7 +456,12 @@ export class PacketClient implements ClientTransport {
   }
 }
 
-export class StreamReceiver {
+export interface StreamReceiver {
+  recv(): Promise<Uint8Array>;
+  cancel(): Promise<void>;
+}
+
+class PacketStreamReceiver implements StreamReceiver {
   private requestId: number;
   private pending: PendingStream;
   private allPending: Map<number, PendingRequest>;
@@ -531,4 +536,179 @@ export class StreamReceiver {
       // Best effort
     }
   }
+}
+
+// ============================================================================
+// HTTP Client (implements ClientTransport directly)
+// ============================================================================
+
+const CONTENT_TYPE_RPC = 'application/x-volex-rpc';
+const CONTENT_TYPE_RPC_STREAM = 'application/x-volex-rpc-stream';
+const CONTENT_TYPE_RPC_ERROR = 'application/x-volex-rpc-error';
+
+export class HttpClient implements ClientTransport {
+  private url: string;
+
+  constructor(url: string) {
+    this.url = url;
+  }
+
+  async callUnary(methodIndex: number, payload: Uint8Array): Promise<Uint8Array> {
+    const body = this.buildRequestBody(methodIndex, payload);
+    const resp = await this.doRequest(body);
+
+    if (resp.statusCode !== 200) {
+      throw parseHttpError(resp.contentType, resp.body);
+    }
+
+    return resp.body;
+  }
+
+  async callStream(methodIndex: number, payload: Uint8Array): Promise<StreamReceiver> {
+    const body = this.buildRequestBody(methodIndex, payload);
+    const resp = await this.doRequest(body);
+
+    if (resp.statusCode !== 200) {
+      throw parseHttpError(resp.contentType, resp.body);
+    }
+
+    // Parse stream messages from body
+    const queue: StreamEvent[] = [];
+    const waiters: Array<(event: StreamEvent) => void> = [];
+
+    let sbuf = new Buf(resp.body, 0);
+    while (sbuf.offset < sbuf.data.length) {
+      const length = decodeVarint(sbuf);
+      if (sbuf.offset + length > sbuf.data.length) {
+        queue.push({ type: 'error', error: new RpcError(0, 'truncated stream message') });
+        break;
+      }
+      const msg = sbuf.data.slice(sbuf.offset, sbuf.offset + length);
+      sbuf.offset += length;
+
+      if (msg.length === 0) {
+        queue.push({ type: 'error', error: new RpcError(0, 'empty stream message') });
+        break;
+      }
+
+      const msgType = msg[0];
+      const msgPayload = msg.slice(1);
+
+      switch (msgType) {
+        case RPC_TYPE_STREAM_ITEM:
+          queue.push({ type: 'item', data: msgPayload });
+          break;
+        case RPC_TYPE_STREAM_END:
+          queue.push({ type: 'end' });
+          break;
+        case RPC_TYPE_ERROR: {
+          const ebuf = new Buf(msgPayload, 0);
+          const code = decodeVarint(ebuf);
+          const msgLen = decodeVarint(ebuf);
+          const msgBytes = msgPayload.slice(ebuf.offset, ebuf.offset + msgLen);
+          const errMsg = new TextDecoder().decode(msgBytes);
+          queue.push({ type: 'error', error: new RpcError(code, errMsg) });
+          break;
+        }
+        default:
+          queue.push({ type: 'error', error: new RpcError(0, `unknown stream message type: 0x${msgType.toString(16)}`) });
+          break;
+      }
+
+      // Stop after end or error
+      const last = queue[queue.length - 1];
+      if (last.type === 'end' || last.type === 'error') {
+        break;
+      }
+    }
+
+    // If no end marker was found, add one
+    if (queue.length === 0 || (queue[queue.length - 1].type !== 'end' && queue[queue.length - 1].type !== 'error')) {
+      queue.push({ type: 'end' });
+    }
+
+    const pendingStream: PendingStream = { type: 'stream', queue, waiters };
+
+    return new HttpStreamReceiver(pendingStream);
+  }
+
+  private buildRequestBody(methodIndex: number, payload: Uint8Array): Uint8Array {
+    const wbuf = new WriteBuf();
+    encodeVarint(methodIndex, wbuf);
+    wbuf.push(payload);
+    return wbuf.toUint8Array();
+  }
+
+  private async doRequest(body: Uint8Array): Promise<{ statusCode: number; contentType: string; body: Uint8Array }> {
+    const resp = await fetch(this.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': CONTENT_TYPE_RPC,
+      },
+      body: body as Uint8Array<ArrayBuffer>,
+    });
+
+    const respBody = new Uint8Array(await resp.arrayBuffer());
+    return {
+      statusCode: resp.status,
+      contentType: resp.headers.get('content-type') || '',
+      body: respBody,
+    };
+  }
+}
+
+class HttpStreamReceiver {
+  private pending: PendingStream;
+  private cancelled = false;
+
+  constructor(pending: PendingStream) {
+    this.pending = pending;
+  }
+
+  async recv(): Promise<Uint8Array> {
+    if (this.cancelled) {
+      throw RpcError.streamCancelled();
+    }
+
+    if (this.pending.queue.length > 0) {
+      const event = this.pending.queue.shift()!;
+      return this.handleEvent(event);
+    }
+
+    const event = await new Promise<StreamEvent>((resolve) => {
+      this.pending.waiters.push(resolve);
+    });
+    return this.handleEvent(event);
+  }
+
+  private handleEvent(event: StreamEvent): Uint8Array {
+    switch (event.type) {
+      case 'item':
+        return event.data;
+      case 'end':
+        throw RpcError.streamClosed();
+      case 'error':
+        throw event.error;
+    }
+  }
+
+  async cancel(): Promise<void> {
+    this.cancelled = true;
+  }
+}
+
+function parseHttpError(contentType: string, body: Uint8Array): RpcError {
+  if (contentType === CONTENT_TYPE_RPC_ERROR && body.length > 0) {
+    const buf = new Buf(body, 0);
+    try {
+      const code = decodeVarint(buf);
+      const msgLen = decodeVarint(buf);
+      const msgBytes = body.slice(buf.offset, buf.offset + msgLen);
+      const msg = new TextDecoder().decode(msgBytes);
+      return new RpcError(code, msg);
+    } catch {
+      // Fall through
+    }
+  }
+  return new RpcError(ERR_CODE_HANDLER_ERROR, 'HTTP error');
 }

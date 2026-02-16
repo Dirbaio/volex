@@ -12,5 +12,5 @@ name = "client"
 path = "src/client.rs"
 
 [dependencies]
-volex = { path = "../../../runtime-rust", features = ["rpc"] }
+volex = { path = "../../../runtime-rust", features = ["rpc", "http"] }
 tokio = { version = "1", features = ["full"] }

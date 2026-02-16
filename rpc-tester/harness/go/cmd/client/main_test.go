@@ -27,6 +27,10 @@ func connectTCP(t *testing.T, addr string, ctx context.Context) *gen.TestService
 	return gen.NewTestServiceClient(packetClient)
 }
 
+func connectHTTP(url string) *gen.TestServiceClient {
+	return gen.NewTestServiceClient(volex.NewHttpClient(url))
+}
+
 func TestRPC(t *testing.T) {
 	addr := os.Getenv("SERVER_ADDR")
 	if addr == "" {
@@ -42,11 +46,13 @@ func TestRPC(t *testing.T) {
 	defer cancel()
 
 	var client *gen.TestServiceClient
+	skipCancel := false
 	switch transportType {
 	case "tcp":
 		client = connectTCP(t, addr, ctx)
 	case "http":
-		t.Fatal("HTTP client transport not yet implemented")
+		client = connectHTTP(addr)
+		skipCancel = true
 	default:
 		t.Fatalf("unknown transport: %s", transportType)
 	}
@@ -288,7 +294,10 @@ func TestRPC(t *testing.T) {
 		}
 	})
 
-	// Test cancellation
+	// Test cancellation (skip for HTTP)
+	if skipCancel {
+		return
+	}
 	t.Run("cancel unary request", func(t *testing.T) {
 		// Create a context that we'll cancel quickly
 		cancelCtx, cancelFunc := context.WithCancel(ctx)

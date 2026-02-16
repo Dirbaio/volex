@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -150,6 +151,31 @@ func serveTCP() {
 	}
 }
 
+func serveHTTP() {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to listen: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	httpServer := volex.NewHttpServer()
+	impl_ := &TestServiceImpl{}
+
+	// Start accepting RPC calls in background
+	go gen.ServeTestService(ctx, httpServer, impl_)
+
+	// Print the URL for the client to connect to
+	fmt.Printf("http://%s/rpc\n", listener.Addr().String())
+
+	// Serve HTTP
+	mux := http.NewServeMux()
+	mux.Handle("/rpc", httpServer.Handler())
+	srv := &http.Server{Handler: mux}
+	srv.Serve(listener)
+}
+
 func main() {
 	transport := os.Getenv("TRANSPORT")
 	if transport == "" {
@@ -160,7 +186,7 @@ func main() {
 	case "tcp":
 		serveTCP()
 	case "http":
-		log.Fatal("HTTP server transport not yet implemented")
+		serveHTTP()
 	default:
 		log.Fatalf("unknown transport: %s", transport)
 	}

@@ -848,3 +848,496 @@ impl PacketTransport for TcpTransport {
         Ok(data)
     }
 }
+
+// ============================================================================
+// HTTP Transport
+// ============================================================================
+
+#[cfg(feature = "http")]
+mod http_transport {
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use bytes::Bytes;
+    use http_body_util::{BodyExt, Full};
+    use hyper::body::{Body, Frame, Incoming};
+    use hyper::service::Service;
+    use hyper_util::rt::TokioIo;
+
+    use super::*;
+
+    const CONTENT_TYPE_RPC: &str = "application/x-volex-rpc";
+    const CONTENT_TYPE_RPC_STREAM: &str = "application/x-volex-rpc-stream";
+    const CONTENT_TYPE_RPC_ERROR: &str = "application/x-volex-rpc-error";
+
+    // ========================================================================
+    // HTTP Client
+    // ========================================================================
+
+    /// HTTP RPC client. Each call maps to a single HTTP POST request.
+    pub struct HttpClient {
+        host: String,
+        port: u16,
+        path: String,
+    }
+
+    impl HttpClient {
+        /// Creates a new HTTP client from a URL like `http://host:port/path`.
+        pub fn new(url: &str) -> Self {
+            let url = url.strip_prefix("http://").unwrap_or(url);
+            let (host_port, path) = match url.find('/') {
+                Some(i) => (&url[..i], &url[i..]),
+                None => (url, "/rpc"),
+            };
+            let (host, port) = match host_port.find(':') {
+                Some(i) => (&host_port[..i], host_port[i + 1..].parse::<u16>().unwrap_or(80)),
+                None => (host_port, 80),
+            };
+            Self {
+                host: host.to_string(),
+                port,
+                path: path.to_string(),
+            }
+        }
+
+        async fn do_request(
+            &self,
+            body: Vec<u8>,
+        ) -> Result<hyper::Response<Incoming>, RpcError> {
+            let stream = tokio::net::TcpStream::connect((&*self.host, self.port))
+                .await
+                .map_err(|e| RpcError::new(0, e.to_string()))?;
+            let _ = stream.set_nodelay(true);
+            let io = TokioIo::new(stream);
+
+            let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
+                .await
+                .map_err(|e| RpcError::new(0, e.to_string()))?;
+
+            tokio::task::spawn_local(async move {
+                let _ = conn.await;
+            });
+
+            let req = hyper::Request::builder()
+                .method("POST")
+                .uri(&self.path)
+                .header("host", format!("{}:{}", self.host, self.port))
+                .header("content-type", CONTENT_TYPE_RPC)
+                .header("connection", "close")
+                .body(Full::new(Bytes::from(body)))
+                .map_err(|e| RpcError::new(0, e.to_string()))?;
+
+            sender
+                .send_request(req)
+                .await
+                .map_err(|e| RpcError::new(0, e.to_string()))
+        }
+    }
+
+    fn get_header(resp: &hyper::Response<Incoming>, name: &str) -> String {
+        resp.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn parse_http_error(content_type: &str, body: &[u8]) -> RpcError {
+        if content_type == CONTENT_TYPE_RPC_ERROR && !body.is_empty() {
+            let mut buf = body;
+            if let Ok(code) = decode_leb128_u64(&mut buf) {
+                if let Ok(msg_len) = decode_leb128_u64(&mut buf) {
+                    if buf.len() >= msg_len as usize {
+                        let msg = String::from_utf8_lossy(&buf[..msg_len as usize]).to_string();
+                        return RpcError::new(code as u32, msg);
+                    }
+                }
+            }
+        }
+        RpcError::new(ERR_CODE_HANDLER_ERROR, "HTTP error")
+    }
+
+    fn parse_stream_events(data: &[u8], event_tx: &mpsc::Sender<StreamEvent>) {
+        let mut buf = data;
+        loop {
+            if buf.is_empty() {
+                let _ = event_tx.try_send(StreamEvent::End);
+                return;
+            }
+            let length = match decode_leb128_u64(&mut buf) {
+                Ok(l) => l as usize,
+                Err(_) => {
+                    let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(0, "invalid LEB128 in stream")));
+                    return;
+                }
+            };
+            if buf.len() < length || length == 0 {
+                let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(0, "truncated stream message")));
+                return;
+            }
+            let msg = &buf[..length];
+            buf = &buf[length..];
+
+            let msg_type = msg[0];
+            let msg_payload = &msg[1..];
+
+            match msg_type {
+                RPC_TYPE_STREAM_ITEM => {
+                    if event_tx.try_send(StreamEvent::Item(msg_payload.to_vec())).is_err() {
+                        return;
+                    }
+                }
+                RPC_TYPE_STREAM_END => {
+                    let _ = event_tx.try_send(StreamEvent::End);
+                    return;
+                }
+                RPC_TYPE_ERROR => {
+                    let mut ebuf = msg_payload;
+                    let code = decode_leb128_u64(&mut ebuf).unwrap_or(0) as u32;
+                    let msg_len = decode_leb128_u64(&mut ebuf).unwrap_or(0) as usize;
+                    let msg = if ebuf.len() >= msg_len {
+                        String::from_utf8_lossy(&ebuf[..msg_len]).to_string()
+                    } else {
+                        "unknown error".to_string()
+                    };
+                    let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(code, msg)));
+                    return;
+                }
+                _ => {
+                    let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(0, "unknown stream message type")));
+                    return;
+                }
+            }
+        }
+    }
+
+    impl ClientTransport for HttpClient {
+        async fn call_unary(&self, method_index: u32, payload: Vec<u8>) -> Result<Vec<u8>, RpcError> {
+            let mut body = Vec::new();
+            encode_leb128_u64(method_index as u64, &mut body);
+            body.extend_from_slice(&payload);
+
+            let resp = self.do_request(body).await?;
+            let status = resp.status();
+            let content_type = get_header(&resp, "content-type");
+
+            let body = resp
+                .into_body()
+                .collect()
+                .await
+                .map_err(|e| RpcError::new(0, e.to_string()))?
+                .to_bytes();
+
+            if !status.is_success() {
+                return Err(parse_http_error(&content_type, &body));
+            }
+
+            Ok(body.to_vec())
+        }
+
+        async fn call_stream(&self, method_index: u32, payload: Vec<u8>) -> Result<StreamReceiver, RpcError> {
+            let mut body = Vec::new();
+            encode_leb128_u64(method_index as u64, &mut body);
+            body.extend_from_slice(&payload);
+
+            let resp = self.do_request(body).await?;
+            let status = resp.status();
+            let content_type = get_header(&resp, "content-type");
+
+            // Collect the full body
+            let full_body = resp
+                .into_body()
+                .collect()
+                .await
+                .map_err(|e| RpcError::new(0, e.to_string()))?
+                .to_bytes();
+
+            if !status.is_success() {
+                return Err(parse_http_error(&content_type, &full_body));
+            }
+
+            let (event_tx, event_rx) = mpsc::channel(16);
+            let (cancel_tx, _cancel_rx) = oneshot::channel();
+
+            // Parse stream messages from the collected body
+            parse_stream_events(&full_body, &event_tx);
+
+            Ok(StreamReceiver {
+                rx: event_rx,
+                cancel_tx: Some(cancel_tx),
+            })
+        }
+    }
+
+    // ========================================================================
+    // HTTP Server
+    // ========================================================================
+
+    /// A single incoming HTTP RPC request.
+    pub struct HttpServerCall {
+        method_index: u32,
+        payload: Vec<u8>,
+        cancel_rx: oneshot::Receiver<()>,
+        response_tx: oneshot::Sender<HttpServerResponse>,
+    }
+
+    enum HttpServerResponse {
+        Unary(Vec<u8>),
+        Error { code: u32, message: String },
+        Stream(mpsc::Receiver<Vec<u8>>),
+    }
+
+    impl ServerCall for HttpServerCall {
+        fn method_index(&self) -> u32 {
+            self.method_index
+        }
+
+        fn payload(&self) -> &[u8] {
+            &self.payload
+        }
+
+        fn take_cancel_rx(&mut self) -> oneshot::Receiver<()> {
+            let (_, dummy_rx) = oneshot::channel();
+            std::mem::replace(&mut self.cancel_rx, dummy_rx)
+        }
+
+        async fn send_response(self, payload: Vec<u8>) -> Result<(), RpcError> {
+            let _ = self.response_tx.send(HttpServerResponse::Unary(payload));
+            Ok(())
+        }
+
+        fn into_stream_sender(self) -> StreamSenderBase {
+            let (stream_tx, stream_rx) = mpsc::channel::<Vec<u8>>(16);
+            let _ = self.response_tx.send(HttpServerResponse::Stream(stream_rx));
+            StreamSenderBase::new(stream_tx)
+        }
+
+        async fn send_error(self, code: u32, message: &str) -> Result<(), RpcError> {
+            let _ = self.response_tx.send(HttpServerResponse::Error {
+                code,
+                message: message.to_string(),
+            });
+            Ok(())
+        }
+    }
+
+    /// A streaming response body that reads from an mpsc channel.
+    struct StreamBody {
+        rx: mpsc::Receiver<Vec<u8>>,
+    }
+
+    impl Body for StreamBody {
+        type Data = Bytes;
+        type Error = std::convert::Infallible;
+
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+            match self.rx.poll_recv(cx) {
+                Poll::Ready(Some(msg)) => {
+                    // LEB128-frame the message
+                    let mut frame = Vec::new();
+                    encode_leb128_u64(msg.len() as u64, &mut frame);
+                    frame.extend_from_slice(&msg);
+                    Poll::Ready(Some(Ok(Frame::data(Bytes::from(frame)))))
+                }
+                Poll::Ready(None) => Poll::Ready(None),
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+
+    /// Either a fixed body or a streaming body.
+    enum ResponseBody {
+        Full(http_body_util::Full<Bytes>),
+        Stream(StreamBody),
+    }
+
+    impl Body for ResponseBody {
+        type Data = Bytes;
+        type Error = std::convert::Infallible;
+
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+            match self.get_mut() {
+                ResponseBody::Full(b) => Pin::new(b).poll_frame(cx).map_err(|e| match e {}),
+                ResponseBody::Stream(b) => Pin::new(b).poll_frame(cx),
+            }
+        }
+    }
+
+    /// Hyper service that dispatches RPC calls.
+    struct RpcService {
+        call_tx: mpsc::Sender<HttpServerCall>,
+    }
+
+    impl Service<hyper::Request<Incoming>> for RpcService {
+        type Response = hyper::Response<ResponseBody>;
+        type Error = std::convert::Infallible;
+        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+
+        fn call(&self, req: hyper::Request<Incoming>) -> Self::Future {
+            let call_tx = self.call_tx.clone();
+            Box::pin(async move {
+                Ok(handle_request(req, call_tx).await)
+            })
+        }
+    }
+
+    async fn handle_request(
+        req: hyper::Request<Incoming>,
+        call_tx: mpsc::Sender<HttpServerCall>,
+    ) -> hyper::Response<ResponseBody> {
+        if req.method() != hyper::Method::POST {
+            return hyper::Response::builder()
+                .status(405)
+                .header("connection", "close")
+                .body(ResponseBody::Full(Full::new(Bytes::new())))
+                .unwrap();
+        }
+
+        // Read body
+        let body = match req.into_body().collect().await {
+            Ok(b) => b.to_bytes(),
+            Err(_) => {
+                return hyper::Response::builder()
+                    .status(400)
+                    .header("connection", "close")
+                    .body(ResponseBody::Full(Full::new(Bytes::new())))
+                    .unwrap();
+            }
+        };
+
+        // Parse: [method_index: LEB128] [payload]
+        let mut buf = body.as_ref();
+        let method_index = match decode_leb128_u64(&mut buf) {
+            Ok(idx) => idx as u32,
+            Err(_) => {
+                return hyper::Response::builder()
+                    .status(400)
+                    .header("connection", "close")
+                    .body(ResponseBody::Full(Full::new(Bytes::new())))
+                    .unwrap();
+            }
+        };
+        let payload = buf.to_vec();
+
+        // Create call
+        let (response_tx, response_rx) = oneshot::channel();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+
+        let call = HttpServerCall {
+            method_index,
+            payload,
+            cancel_rx,
+            response_tx,
+        };
+
+        if call_tx.send(call).await.is_err() {
+            return hyper::Response::builder()
+                .status(500)
+                .header("connection", "close")
+                .body(ResponseBody::Full(Full::new(Bytes::new())))
+                .unwrap();
+        }
+
+        // Wait for response
+        let resp = match response_rx.await {
+            Ok(r) => r,
+            Err(_) => {
+                let _ = cancel_tx.send(());
+                return hyper::Response::builder()
+                    .status(500)
+                    .header("connection", "close")
+                    .body(ResponseBody::Full(Full::new(Bytes::new())))
+                    .unwrap();
+            }
+        };
+
+        match resp {
+            HttpServerResponse::Unary(payload) => hyper::Response::builder()
+                .status(200)
+                .header("content-type", CONTENT_TYPE_RPC)
+                .header("connection", "close")
+                .body(ResponseBody::Full(Full::new(Bytes::from(payload))))
+                .unwrap(),
+            HttpServerResponse::Error { code, message } => {
+                let status = match code {
+                    ERR_CODE_UNKNOWN_METHOD => 404,
+                    ERR_CODE_DECODE_ERROR => 400,
+                    _ => 500,
+                };
+                let mut err_body = Vec::new();
+                encode_leb128_u64(code as u64, &mut err_body);
+                encode_leb128_u64(message.len() as u64, &mut err_body);
+                err_body.extend_from_slice(message.as_bytes());
+                hyper::Response::builder()
+                    .status(status)
+                    .header("content-type", CONTENT_TYPE_RPC_ERROR)
+                    .header("connection", "close")
+                    .body(ResponseBody::Full(Full::new(Bytes::from(err_body))))
+                    .unwrap()
+            }
+            HttpServerResponse::Stream(stream_rx) => hyper::Response::builder()
+                .status(200)
+                .header("content-type", CONTENT_TYPE_RPC_STREAM)
+                .header("connection", "close")
+                .body(ResponseBody::Stream(StreamBody { rx: stream_rx }))
+                .unwrap(),
+        }
+    }
+
+    /// HTTP RPC server. Listens on a TCP port and accepts RPC calls.
+    pub struct HttpServer {
+        call_rx: RefCell<mpsc::Receiver<HttpServerCall>>,
+    }
+
+    impl HttpServer {
+        /// Creates a new HTTP server and starts listening.
+        pub async fn new(listener: tokio::net::TcpListener) -> Self {
+            let (call_tx, call_rx) = mpsc::channel(64);
+            let server = Self {
+                call_rx: RefCell::new(call_rx),
+            };
+
+            tokio::task::spawn_local(async move {
+                loop {
+                    let (stream, _) = match listener.accept().await {
+                        Ok(v) => v,
+                        Err(_) => return,
+                    };
+                    let _ = stream.set_nodelay(true);
+                    let io = TokioIo::new(stream);
+                    let svc = RpcService {
+                        call_tx: call_tx.clone(),
+                    };
+                    tokio::task::spawn_local(async move {
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(io, svc)
+                            .await;
+                    });
+                }
+            });
+
+            server
+        }
+    }
+
+    impl ServerTransport for HttpServer {
+        type Call = HttpServerCall;
+
+        async fn accept(&self) -> Result<HttpServerCall, RpcError> {
+            self.call_rx
+                .borrow_mut()
+                .recv()
+                .await
+                .ok_or_else(|| RpcError::new(0, "server closed"))
+        }
+    }
+}
+
+#[cfg(feature = "http")]
+pub use http_transport::{HttpClient, HttpServer, HttpServerCall};

@@ -21,7 +21,7 @@ struct Cli {
     server: Option<Language>,
 
     /// Transport to use
-    #[arg(long, value_enum, default_value = "tcp")]
+    #[arg(long, value_enum)]
     transport: Transport,
 
     /// Run all client+server combinations

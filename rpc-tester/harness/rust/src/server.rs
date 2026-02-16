@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use generated::*;
 use tokio::net::TcpListener;
-use volex::rpc::{PacketServer, RpcError, StreamSender, TcpTransport};
+use volex::rpc::{HttpServer, PacketServer, RpcError, StreamSender, TcpTransport};
 
 /// A guard that runs a closure when dropped.
 struct OnDrop<F: FnOnce()>(Option<F>);
@@ -167,6 +167,19 @@ async fn serve_tcp() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+async fn serve_http() -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+
+    // Print the URL for the client to connect to
+    println!("http://{}/rpc", addr);
+
+    let server = HttpServer::new(listener).await;
+    let impl_ = Rc::new(TestServiceImpl::new());
+    let _ = serve_test_service(&server, impl_).await;
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = std::env::var("TRANSPORT").unwrap_or_else(|_| "tcp".to_string());
@@ -176,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .run_until(async {
             match transport.as_str() {
                 "tcp" => serve_tcp().await,
-                "http" => todo!("HTTP server transport not yet implemented"),
+                "http" => serve_http().await,
                 other => Err(format!("unknown transport: {}", other).into()),
             }
         })

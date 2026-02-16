@@ -1,7 +1,7 @@
 // TypeScript RPC test harness client
 
 import * as net from 'net';
-import { TcpTransport, PacketClient, RpcError, ERR_CODE_HANDLER_ERROR } from 'volex/rpc';
+import { TcpTransport, PacketClient, HttpClient, RpcError, ERR_CODE_HANDLER_ERROR } from 'volex/rpc';
 import {
   TestServiceClient,
   EchoRequest,
@@ -410,7 +410,7 @@ async function connectTcp(addr: string): Promise<{ client: TestServiceClient; cl
   return { client, close: () => transport.close() };
 }
 
-async function runAllTests(client: TestServiceClient): Promise<boolean> {
+async function runAllTests(client: TestServiceClient, skipCancel: boolean): Promise<boolean> {
   let allPassed = true;
 
   // Test echo
@@ -436,11 +436,11 @@ async function runAllTests(client: TestServiceClient): Promise<boolean> {
   allPassed = (await runTest('non-message_add_zero', () => testNonMessageAddZero(client))) && allPassed;
   allPassed = (await runTest('non-message_stream_strings', () => testNonMessageStreamStrings(client))) && allPassed;
 
-  // Test cancellation (stream cancel works, unary cancel is limited in TS)
-  // Skip unary cancel test since TypeScript doesn't have proper cancellation support
-  // allPassed = (await runTest('cancel_unary_request', () => testCancelUnaryRequest(client))) && allPassed;
-  allPassed = (await runTest('cancel_stream_request', () => testCancelStreamRequest(client))) && allPassed;
-  allPassed = (await runTest('cancel_while_recv_waiting', () => testCancelWhileRecvWaiting(client))) && allPassed;
+  // Test cancellation (skip for HTTP)
+  if (!skipCancel) {
+    allPassed = (await runTest('cancel_stream_request', () => testCancelStreamRequest(client))) && allPassed;
+    allPassed = (await runTest('cancel_while_recv_waiting', () => testCancelWhileRecvWaiting(client))) && allPassed;
+  }
 
   return allPassed;
 }
@@ -464,15 +464,20 @@ async function main() {
       close = conn.close;
       break;
     }
-    case 'http':
-      throw new Error('HTTP client transport not yet implemented');
+    case 'http': {
+      client = new TestServiceClient(new HttpClient(addr));
+      close = () => {};
+      break;
+    }
     default:
       throw new Error(`unknown transport: ${transportType}`);
   }
 
+  const skipCancel = transportType === 'http';
+
   console.log('Running TypeScript client tests...');
 
-  const allPassed = await runAllTests(client);
+  const allPassed = await runAllTests(client, skipCancel);
 
   // Close the connection
   close();
