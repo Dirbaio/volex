@@ -749,10 +749,16 @@ impl<'a> TypeScriptCodeGenerator<'a> {
     fn write_default_value(&mut self, ty: &Type) {
         match ty {
             Type::Bool => write!(self.output, "false").unwrap(),
-            Type::U8 | Type::U16 | Type::U32 | Type::I8 | Type::I16 | Type::I32 | Type::F32 | Type::F64 => {
-                write!(self.output, "0").unwrap()
-            }
-            Type::U64 | Type::I64 => write!(self.output, "0n").unwrap(),
+            Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::F32
+            | Type::F64 => write!(self.output, "0").unwrap(),
             Type::String => write!(self.output, "\"\"").unwrap(),
             Type::Array(_) => write!(self.output, "[]").unwrap(),
             Type::Map(_, _) => write!(self.output, "new Map()").unwrap(),
