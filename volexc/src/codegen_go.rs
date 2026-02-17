@@ -1387,102 +1387,124 @@ impl<'a> GoCodeGenerator<'a> {
             }
         }
 
-        // Generate the server function
+        // Generate the handler struct
         writeln!(
             self.output,
-            "// Serve{} serves the {} service.",
+            "// {}Handler wraps a {} implementation as a __rt.ServerHandler.",
             service_name, service_name
         )
         .unwrap();
         writeln!(
             self.output,
-            "func Serve{}(ctx context.Context, transport __rt.ServerTransport, impl {}) error {{",
+            "type {}Handler struct {{",
+            service_name
+        )
+        .unwrap();
+        writeln!(self.output, "\timpl {}", service_name).unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        writeln!(
+            self.output,
+            "// New{}Handler creates a new handler for the {} service.",
             service_name, service_name
         )
         .unwrap();
-        writeln!(self.output, "\tfor {{").unwrap();
-        writeln!(self.output, "\t\tcall, err := transport.Accept(ctx)").unwrap();
-        writeln!(self.output, "\t\tif err != nil {{").unwrap();
-        writeln!(self.output, "\t\t\treturn err").unwrap();
-        writeln!(self.output, "\t\t}}").unwrap();
-        writeln!(self.output, "\t\tgo func(call __rt.ServerCall) {{").unwrap();
-        writeln!(self.output, "\t\t\tswitch call.MethodIndex() {{").unwrap();
+        writeln!(
+            self.output,
+            "func New{}Handler(impl {}) *{}Handler {{",
+            service_name, service_name, service_name
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "\treturn &{}Handler{{impl: impl}}",
+            service_name
+        )
+        .unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        // Generate HandleCall method
+        writeln!(
+            self.output,
+            "func (h *{}Handler) HandleCall(call __rt.ServerCall) {{",
+            service_name
+        )
+        .unwrap();
+        writeln!(self.output, "\tswitch call.MethodIndex() {{").unwrap();
 
         for method in &s.methods {
             let method_name = to_pascal_case(&method.name.node);
             let index = method.index.node;
 
-            writeln!(self.output, "\t\t\tcase {}:", index).unwrap();
-            writeln!(self.output, "\t\t\t\tbuf := call.Payload()").unwrap();
+            writeln!(self.output, "\tcase {}:", index).unwrap();
+            writeln!(self.output, "\t\tbuf := call.Payload()").unwrap();
             writeln!(
                 self.output,
-                "\t\t\t\treq, err := {}",
+                "\t\treq, err := {}",
                 self.decode_for_service(&method.request.node, "&buf")
             )
             .unwrap();
-            writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
+            writeln!(self.output, "\t\tif err != nil {{").unwrap();
             writeln!(
                 self.output,
-                "\t\t\t\t\tcall.SendError(__rt.ErrCodeDecodeError, err.Error())"
+                "\t\t\tcall.SendError(__rt.ErrCodeDecodeError, err.Error())"
             )
             .unwrap();
-            writeln!(self.output, "\t\t\t\t\treturn").unwrap();
-            writeln!(self.output, "\t\t\t\t}}").unwrap();
+            writeln!(self.output, "\t\t\treturn").unwrap();
+            writeln!(self.output, "\t\t}}").unwrap();
 
             match &method.response.node {
                 ServiceResponse::Unary(resp_ty) => {
                     writeln!(
                         self.output,
-                        "\t\t\t\tresp, err := impl.{}(call.Context(), req)",
+                        "\t\tresp, err := h.impl.{}(call.Context(), req)",
                         method_name
                     )
                     .unwrap();
-                    writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
+                    writeln!(self.output, "\t\tif err != nil {{").unwrap();
                     writeln!(
                         self.output,
-                        "\t\t\t\t\tcall.SendError(__rt.ErrCodeHandlerError, err.Error())"
+                        "\t\t\tcall.SendError(__rt.ErrCodeHandlerError, err.Error())"
                     )
                     .unwrap();
-                    writeln!(self.output, "\t\t\t\t\treturn").unwrap();
-                    writeln!(self.output, "\t\t\t\t}}").unwrap();
-                    writeln!(self.output, "\t\t\t\tvar respBuf []byte").unwrap();
-                    self.encode_value_for_service("resp", resp_ty, 4, "respBuf");
-                    writeln!(self.output, "\t\t\t\tcall.SendResponse(respBuf)").unwrap();
+                    writeln!(self.output, "\t\t\treturn").unwrap();
+                    writeln!(self.output, "\t\t}}").unwrap();
+                    writeln!(self.output, "\t\tvar respBuf []byte").unwrap();
+                    self.encode_value_for_service("resp", resp_ty, 2, "respBuf");
+                    writeln!(self.output, "\t\tcall.SendResponse(respBuf)").unwrap();
                 }
                 ServiceResponse::Stream(_) => {
                     writeln!(
                         self.output,
-                        "\t\t\t\tstream := &{}{}ServerStream{{call: call}}",
+                        "\t\tstream := &{}{}ServerStream{{call: call}}",
                         service_name, method_name
                     )
                     .unwrap();
                     writeln!(
                         self.output,
-                        "\t\t\t\terr = impl.{}(call.Context(), req, stream)",
+                        "\t\terr = h.impl.{}(call.Context(), req, stream)",
                         method_name
                     )
                     .unwrap();
-                    writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
+                    writeln!(self.output, "\t\tif err != nil {{").unwrap();
                     writeln!(
                         self.output,
-                        "\t\t\t\t\tcall.SendError(__rt.ErrCodeHandlerError, err.Error())"
+                        "\t\t\tcall.SendError(__rt.ErrCodeHandlerError, err.Error())"
                     )
                     .unwrap();
-                    writeln!(self.output, "\t\t\t\t\treturn").unwrap();
-                    writeln!(self.output, "\t\t\t\t}}").unwrap();
-                    writeln!(self.output, "\t\t\t\tcall.SendStreamEnd()").unwrap();
+                    writeln!(self.output, "\t\t\treturn").unwrap();
+                    writeln!(self.output, "\t\t}}").unwrap();
+                    writeln!(self.output, "\t\tcall.SendStreamEnd()").unwrap();
                 }
             }
         }
 
-        writeln!(self.output, "\t\t\tdefault:").unwrap();
+        writeln!(self.output, "\tdefault:").unwrap();
         writeln!(
             self.output,
-            "\t\t\t\tcall.SendError(__rt.ErrCodeUnknownMethod, \"unknown method\")"
+            "\t\tcall.SendError(__rt.ErrCodeUnknownMethod, \"unknown method\")"
         )
         .unwrap();
-        writeln!(self.output, "\t\t\t}}").unwrap();
-        writeln!(self.output, "\t\t}}(call)").unwrap();
         writeln!(self.output, "\t}}").unwrap();
         writeln!(self.output, "}}\n").unwrap();
 

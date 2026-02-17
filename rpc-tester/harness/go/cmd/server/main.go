@@ -144,10 +144,9 @@ func serveTCP() {
 		go func(conn net.Conn) {
 			defer conn.Close()
 			transport := volex.NewTCPTransport(conn)
-			server := volex.NewPacketServer(transport)
-			impl := &TestServiceImpl{}
-			go server.Run(ctx)
-			gen.ServeTestService(ctx, server, impl)
+			handler := gen.NewTestServiceHandler(&TestServiceImpl{})
+			server := volex.NewPacketServer(transport, handler)
+			server.Run(ctx)
 		}(conn)
 	}
 }
@@ -159,13 +158,8 @@ func serveHTTP() {
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
-
-	httpServer := volex.NewHttpServer()
-	impl_ := &TestServiceImpl{}
-
-	// Start accepting RPC calls in background
-	go gen.ServeTestService(ctx, httpServer, impl_)
+	handler := gen.NewTestServiceHandler(&TestServiceImpl{})
+	httpServer := volex.NewHttpServer(handler)
 
 	// Print the URL for the client to connect to
 	fmt.Printf("http://%s/rpc\n", listener.Addr().String())
@@ -197,10 +191,9 @@ func serveWS() {
 			return
 		}
 		transport := volex.NewWebSocketTransport(conn)
-		server := volex.NewPacketServer(transport)
-		impl := &TestServiceImpl{}
-		go server.Run(ctx)
-		gen.ServeTestService(ctx, server, impl)
+		handler := gen.NewTestServiceHandler(&TestServiceImpl{})
+		server := volex.NewPacketServer(transport, handler)
+		server.Run(ctx)
 	})
 
 	fmt.Printf("ws://%s/rpc\n", listener.Addr().String())

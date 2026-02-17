@@ -65,11 +65,11 @@ type ClientTransport interface {
 	CallStream(ctx context.Context, methodIndex uint32, payload []byte) (*StreamReceiver, error)
 }
 
-// ServerTransport accepts incoming RPC calls.
-// Generated server code uses this interface.
-type ServerTransport interface {
-	// Accept waits for and returns the next incoming RPC call.
-	Accept(ctx context.Context) (ServerCall, error)
+// ServerHandler handles incoming RPC calls.
+// Generated server code implements this interface.
+type ServerHandler interface {
+	// HandleCall handles a single incoming RPC call.
+	HandleCall(call ServerCall)
 }
 
 // ServerCall represents a single incoming RPC request.
@@ -469,24 +469,23 @@ func (c *PacketServerCall) SendError(code uint32, message string) error {
 }
 
 // PacketServer demultiplexes RPC calls from a PacketTransport.
-// Implements ServerTransport.
 type PacketServer struct {
 	transport   PacketTransport
-	callChan    chan ServerCall
+	handler     ServerHandler
 	mu          sync.Mutex
 	activeCalls map[uint64]context.CancelFunc
 }
 
 // NewPacketServer creates a new PacketServer.
-func NewPacketServer(transport PacketTransport) *PacketServer {
+func NewPacketServer(transport PacketTransport, handler ServerHandler) *PacketServer {
 	return &PacketServer{
 		transport:   transport,
-		callChan:    make(chan ServerCall, 64),
+		handler:     handler,
 		activeCalls: make(map[uint64]context.CancelFunc),
 	}
 }
 
-// Run runs the server's receive loop. Must be called concurrently with Accept.
+// Run runs the server's receive loop. It blocks until the context is canceled or the transport fails.
 func (s *PacketServer) Run(ctx context.Context) error {
 	for {
 		select {
@@ -542,12 +541,7 @@ func (s *PacketServer) Run(ctx context.Context) error {
 			s.activeCalls[callID] = callCancel
 			s.mu.Unlock()
 
-			select {
-			case s.callChan <- call:
-			case <-ctx.Done():
-				callCancel()
-				return ctx.Err()
-			}
+			go s.handler.HandleCall(call)
 		case rpcTypeCancel:
 			s.mu.Lock()
 			if cancel, ok := s.activeCalls[callID]; ok {
@@ -556,16 +550,6 @@ func (s *PacketServer) Run(ctx context.Context) error {
 			}
 			s.mu.Unlock()
 		}
-	}
-}
-
-// Accept waits for and returns the next incoming RPC call.
-func (s *PacketServer) Accept(ctx context.Context) (ServerCall, error) {
-	select {
-	case call := <-s.callChan:
-		return call, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	}
 }
 
@@ -920,35 +904,18 @@ func readLEB128FromReader(r io.Reader) (uint64, error) {
 }
 
 // ============================================================================
-// HTTP Server (implements ServerTransport directly)
+// HTTP Server
 // ============================================================================
 
 // HttpServerCall represents a single incoming HTTP RPC request.
 type HttpServerCall struct {
-	methodIndex uint32
-	payload     []byte
-	ctx         context.Context
-	cancel      context.CancelFunc
-	// responseChan signals the HTTP handler with the result.
-	responseChan chan httpResponse
-	// streamWriter writes to the HTTP response body for streaming.
-	streamWriter *httpStreamWriter
-	// streaming tracks whether SendStreamItem has been called.
-	streaming bool
-}
-
-type httpResponse struct {
-	// For unary success
-	payload []byte
-	// For errors (unary or pre-stream)
-	err *httpErrorResponse
-	// For streaming: signals that items were written directly to the response
-	isStream bool
-}
-
-type httpErrorResponse struct {
-	code    uint32
-	message string
+	methodIndex  uint32
+	payload      []byte
+	ctx          context.Context
+	w            http.ResponseWriter
+	flusher      http.Flusher
+	streaming    bool
+	wroteHeader  bool
 }
 
 // MethodIndex returns the method index.
@@ -968,60 +935,64 @@ func (c *HttpServerCall) Context() context.Context {
 
 // SendResponse sends a unary response.
 func (c *HttpServerCall) SendResponse(payload []byte) error {
-	c.responseChan <- httpResponse{payload: payload}
-	return nil
+	c.w.Header().Set("Content-Type", contentTypeRPC)
+	c.w.WriteHeader(http.StatusOK)
+	_, err := c.w.Write(payload)
+	return err
 }
 
 // SendStreamItem sends a stream item.
 func (c *HttpServerCall) SendStreamItem(payload []byte) error {
 	if !c.streaming {
 		c.streaming = true
-		// Signal the HTTP handler to start streaming mode
-		c.responseChan <- httpResponse{isStream: true}
-		// Wait for the handler to set up headers before writing
-		<-c.streamWriter.ready
+		c.w.Header().Set("Content-Type", contentTypeRPCStream)
+		c.w.WriteHeader(http.StatusOK)
+		c.wroteHeader = true
 	}
-	return c.streamWriter.sendItem(payload)
+	return c.writeStreamFrame(rpcTypeStreamItem, payload)
 }
 
 // SendStreamEnd signals the end of a stream.
 func (c *HttpServerCall) SendStreamEnd() error {
 	if !c.streaming {
-		// No items were sent — still send stream headers + end
 		c.streaming = true
-		c.responseChan <- httpResponse{isStream: true}
-		<-c.streamWriter.ready
+		c.w.Header().Set("Content-Type", contentTypeRPCStream)
+		c.w.WriteHeader(http.StatusOK)
+		c.wroteHeader = true
 	}
-	return c.streamWriter.sendEnd()
+	return c.writeStreamFrame(rpcTypeStreamEnd, nil)
 }
 
 // SendError sends an error response.
 func (c *HttpServerCall) SendError(code uint32, message string) error {
 	if c.streaming {
 		// Already started streaming — send error as a stream frame
-		return c.streamWriter.sendError(code, message)
+		var msg []byte
+		EncodeLEB128(uint64(code), &msg)
+		EncodeString(message, &msg)
+		return c.writeStreamFrame(rpcTypeError, msg)
 	}
 	// Not yet streaming — send as a normal HTTP error response
-	c.responseChan <- httpResponse{err: &httpErrorResponse{code: code, message: message}}
-	return nil
+	statusCode := http.StatusInternalServerError
+	switch code {
+	case ErrCodeUnknownMethod:
+		statusCode = http.StatusNotFound
+	case ErrCodeDecodeError:
+		statusCode = http.StatusBadRequest
+	}
+	c.w.Header().Set("Content-Type", contentTypeRPCError)
+	c.w.WriteHeader(statusCode)
+	var errBody []byte
+	EncodeLEB128(uint64(code), &errBody)
+	EncodeString(message, &errBody)
+	_, err := c.w.Write(errBody)
+	return err
 }
 
-// httpStreamWriter writes LEB128-framed stream messages to an HTTP response.
-type httpStreamWriter struct {
-	w       http.ResponseWriter
-	flusher http.Flusher
-	mu      sync.Mutex
-	done    chan struct{}
-	ready   chan struct{}
-}
-
-func (sw *httpStreamWriter) sendItem(payload []byte) error {
-	sw.mu.Lock()
-	defer sw.mu.Unlock()
-
-	// Message: [0x01 STREAM_ITEM] [payload]
+func (c *HttpServerCall) writeStreamFrame(msgType byte, payload []byte) error {
+	// Message: [type] [payload]
 	var msg []byte
-	msg = append(msg, rpcTypeStreamItem)
+	msg = append(msg, msgType)
 	msg = append(msg, payload...)
 
 	// Frame: [length: LEB128] [message]
@@ -1029,70 +1000,23 @@ func (sw *httpStreamWriter) sendItem(payload []byte) error {
 	EncodeLEB128(uint64(len(msg)), &frame)
 	frame = append(frame, msg...)
 
-	if _, err := sw.w.Write(frame); err != nil {
+	if _, err := c.w.Write(frame); err != nil {
 		return err
 	}
-	sw.flusher.Flush()
+	c.flusher.Flush()
 	return nil
 }
 
-func (sw *httpStreamWriter) sendEnd() error {
-	sw.mu.Lock()
-	defer sw.mu.Unlock()
-
-	// Message: [0x02 STREAM_END]
-	var msg []byte
-	msg = append(msg, rpcTypeStreamEnd)
-
-	// Frame: [length: LEB128] [message]
-	var frame []byte
-	EncodeLEB128(uint64(len(msg)), &frame)
-	frame = append(frame, msg...)
-
-	if _, err := sw.w.Write(frame); err != nil {
-		return err
-	}
-	sw.flusher.Flush()
-	close(sw.done)
-	return nil
-}
-
-func (sw *httpStreamWriter) sendError(code uint32, message string) error {
-	sw.mu.Lock()
-	defer sw.mu.Unlock()
-
-	// Message: [0x03 ERROR] [error_code: LEB128] [error_message: string]
-	var msg []byte
-	msg = append(msg, rpcTypeError)
-	EncodeLEB128(uint64(code), &msg)
-	EncodeString(message, &msg)
-
-	// Frame: [length: LEB128] [message]
-	var frame []byte
-	EncodeLEB128(uint64(len(msg)), &frame)
-	frame = append(frame, msg...)
-
-	if _, err := sw.w.Write(frame); err != nil {
-		return err
-	}
-	sw.flusher.Flush()
-	close(sw.done)
-	return nil
-}
-
-// HttpServer implements ServerTransport over HTTP.
+// HttpServer serves RPC calls over HTTP.
 type HttpServer struct {
-	callChan chan ServerCall
-	server   *http.Server
+	handler ServerHandler
 }
 
 // NewHttpServer creates a new HTTP RPC server.
-// It returns the server and the http.Handler to register.
-func NewHttpServer() *HttpServer {
-	s := &HttpServer{
-		callChan: make(chan ServerCall, 64),
+func NewHttpServer(handler ServerHandler) *HttpServer {
+	return &HttpServer{
+		handler: handler,
 	}
-	return s
 }
 
 // Handler returns an http.Handler that processes RPC requests.
@@ -1122,89 +1046,20 @@ func (s *HttpServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	callCtx, callCancel := context.WithCancel(r.Context())
-
-	// Detect client disconnect
-	go func() {
-		<-r.Context().Done()
-		callCancel()
-	}()
-
-	responseChan := make(chan httpResponse, 1)
-
 	flusher, isFlusher := w.(http.Flusher)
 	if !isFlusher {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		callCancel()
 		return
 	}
 
-	sw := &httpStreamWriter{
-		w:       w,
-		flusher: flusher,
-		done:    make(chan struct{}),
-		ready:   make(chan struct{}),
-	}
-
 	call := &HttpServerCall{
-		methodIndex:  uint32(methodIndex),
-		payload:      buf,
-		ctx:          callCtx,
-		cancel:       callCancel,
-		responseChan: responseChan,
-		streamWriter: sw,
+		methodIndex: uint32(methodIndex),
+		payload:     buf,
+		ctx:         r.Context(),
+		w:           w,
+		flusher:     flusher,
 	}
 
-	// Send call to accept loop
-	s.callChan <- call
-
-	// Wait for response
-	select {
-	case resp := <-responseChan:
-		if resp.isStream {
-			// Handler wants to stream — set headers and signal ready
-			w.Header().Set("Content-Type", contentTypeRPCStream)
-			w.WriteHeader(http.StatusOK)
-			close(sw.ready)
-			// Wait for stream to complete
-			select {
-			case <-sw.done:
-			case <-r.Context().Done():
-				callCancel()
-			}
-		} else if resp.err != nil {
-			// Error response
-			statusCode := http.StatusInternalServerError
-			switch resp.err.code {
-			case ErrCodeUnknownMethod:
-				statusCode = http.StatusNotFound
-			case ErrCodeDecodeError:
-				statusCode = http.StatusBadRequest
-			}
-			w.Header().Set("Content-Type", contentTypeRPCError)
-			w.WriteHeader(statusCode)
-			var errBody []byte
-			EncodeLEB128(uint64(resp.err.code), &errBody)
-			EncodeString(resp.err.message, &errBody)
-			w.Write(errBody)
-		} else {
-			// Unary success response
-			w.Header().Set("Content-Type", contentTypeRPC)
-			w.WriteHeader(http.StatusOK)
-			w.Write(resp.payload)
-		}
-	case <-r.Context().Done():
-		// Client disconnected
-		callCancel()
-	}
+	s.handler.HandleCall(call)
 }
 
-// Accept waits for and returns the next incoming RPC call.
-func (s *HttpServer) Accept(ctx context.Context) (ServerCall, error) {
-	select {
-	case call := <-s.callChan:
-		return call, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
