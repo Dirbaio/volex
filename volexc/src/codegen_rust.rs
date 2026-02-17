@@ -52,7 +52,11 @@ impl<'a> CodeGenerator<'a> {
         self.output.push_str("use volex as __rt;\n");
         self.output.push_str("use __rt::Decode as _;\n");
 
-        let has_services = self.schema.items.iter().any(|item| matches!(&item.node, Item::Service(_)));
+        let has_services = self
+            .schema
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, Item::Service(_)));
         if has_services {
             self.output.push_str("use __rt::rpc::ServerCall as _;\n");
         }
@@ -678,9 +682,21 @@ impl<'a> CodeGenerator<'a> {
         writeln!(self.output, "    loop {{").unwrap();
         writeln!(self.output, "        let mut call = transport.accept().await?;").unwrap();
         writeln!(self.output, "        let impl_ = impl_.clone();").unwrap();
-        writeln!(self.output, "        let cancel_rx = __rt::rpc::ServerCall::take_cancel_rx(&mut call);").unwrap();
-        writeln!(self.output, "        __rt::rpc::spawn_cancellable(cancel_rx, async move {{").unwrap();
-        writeln!(self.output, "        match __rt::rpc::ServerCall::method_index(&call) {{").unwrap();
+        writeln!(
+            self.output,
+            "        let cancel_rx = __rt::rpc::ServerCall::take_cancel_rx(&mut call);"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "        __rt::rpc::spawn_cancellable(cancel_rx, async move {{"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "        match __rt::rpc::ServerCall::method_index(&call) {{"
+        )
+        .unwrap();
 
         for method in &s.methods {
             let method_name = &method.name.node;
@@ -689,7 +705,62 @@ impl<'a> CodeGenerator<'a> {
             match &method.response.node {
                 ServiceResponse::Unary(resp_ty) => {
                     writeln!(self.output, "            {} => {{", index).unwrap();
-                    writeln!(self.output, "                let mut buf = __rt::rpc::ServerCall::payload(&call);").unwrap();
+                    writeln!(
+                        self.output,
+                        "                let mut buf = __rt::rpc::ServerCall::payload(&call);"
+                    )
+                    .unwrap();
+                    writeln!(
+                        self.output,
+                        "                let req = match <{}>::decode(&mut buf) {{",
+                        self.rust_type(&method.request.node)
+                    )
+                    .unwrap();
+                    writeln!(self.output, "                    ::core::result::Result::Ok(v) => v,").unwrap();
+                    writeln!(self.output, "                    ::core::result::Result::Err(e) => {{").unwrap();
+                    writeln!(
+                        self.output,
+                        "                        let _ = call.send_error(__rt::rpc::ERR_CODE_DECODE_ERROR, &format!(\"decode error: {{}}\", e)).await;"
+                    )
+                    .unwrap();
+                    writeln!(self.output, "                        return;").unwrap();
+                    writeln!(self.output, "                    }}").unwrap();
+                    writeln!(self.output, "                }};").unwrap();
+                    writeln!(self.output, "                match impl_.{}(req).await {{", method_name).unwrap();
+                    writeln!(
+                        self.output,
+                        "                    ::core::result::Result::Ok(resp) => {{"
+                    )
+                    .unwrap();
+                    writeln!(
+                        self.output,
+                        "                        let mut resp_buf = ::std::vec::Vec::new();"
+                    )
+                    .unwrap();
+                    self.gen_encode_for_service("resp", resp_ty, 24, "resp_buf");
+                    writeln!(
+                        self.output,
+                        "                        let _ = call.send_response(resp_buf).await;"
+                    )
+                    .unwrap();
+                    writeln!(self.output, "                    }}").unwrap();
+                    writeln!(self.output, "                    ::core::result::Result::Err(e) => {{").unwrap();
+                    writeln!(
+                        self.output,
+                        "                        let _ = call.send_error(__rt::rpc::ERR_CODE_HANDLER_ERROR, &e.message).await;"
+                    )
+                    .unwrap();
+                    writeln!(self.output, "                    }}").unwrap();
+                    writeln!(self.output, "                }}").unwrap();
+                    writeln!(self.output, "            }}").unwrap();
+                }
+                ServiceResponse::Stream(resp_ty) => {
+                    writeln!(self.output, "            {} => {{", index).unwrap();
+                    writeln!(
+                        self.output,
+                        "                let mut buf = __rt::rpc::ServerCall::payload(&call);"
+                    )
+                    .unwrap();
                     writeln!(
                         self.output,
                         "                let req = match <{}>::decode(&mut buf) {{",
@@ -708,64 +779,11 @@ impl<'a> CodeGenerator<'a> {
                     writeln!(self.output, "                }};").unwrap();
                     writeln!(
                         self.output,
-                        "                match impl_.{}(req).await {{",
-                        method_name
-                    )
-                    .unwrap();
-                    writeln!(self.output, "                    ::core::result::Result::Ok(resp) => {{").unwrap();
-                    writeln!(self.output, "                        let mut resp_buf = ::std::vec::Vec::new();").unwrap();
-                    self.gen_encode_for_service("resp", resp_ty, 24, "resp_buf");
-                    writeln!(self.output, "                        let _ = call.send_response(resp_buf).await;").unwrap();
-                    writeln!(self.output, "                    }}").unwrap();
-                    writeln!(self.output, "                    ::core::result::Result::Err(e) => {{").unwrap();
-                    writeln!(
-                        self.output,
-                        "                        let _ = call.send_error(__rt::rpc::ERR_CODE_HANDLER_ERROR, &e.message).await;"
-                    )
-                    .unwrap();
-                    writeln!(self.output, "                    }}").unwrap();
-                    writeln!(self.output, "                }}").unwrap();
-                    writeln!(self.output, "            }}").unwrap();
-                }
-                ServiceResponse::Stream(resp_ty) => {
-                    writeln!(self.output, "            {} => {{", index).unwrap();
-                    writeln!(self.output, "                let mut buf = __rt::rpc::ServerCall::payload(&call);").unwrap();
-                    writeln!(
-                        self.output,
-                        "                let req = match <{}>::decode(&mut buf) {{",
-                        self.rust_type(&method.request.node)
-                    )
-                    .unwrap();
-                    writeln!(
-                        self.output,
-                        "                    ::core::result::Result::Ok(v) => v,"
-                    )
-                    .unwrap();
-                    writeln!(
-                        self.output,
-                        "                    ::core::result::Result::Err(e) => {{"
-                    )
-                    .unwrap();
-                    writeln!(
-                        self.output,
-                        "                        let _ = call.send_error(__rt::rpc::ERR_CODE_DECODE_ERROR, &format!(\"decode error: {{}}\", e)).await;"
-                    )
-                    .unwrap();
-                    writeln!(self.output, "                        return;").unwrap();
-                    writeln!(self.output, "                    }}").unwrap();
-                    writeln!(self.output, "                }};").unwrap();
-                    writeln!(
-                        self.output,
                         "                let stream = __rt::rpc::StreamSender::<{}>::new(call.into_stream_sender());",
                         self.rust_type(resp_ty)
                     )
                     .unwrap();
-                    writeln!(
-                        self.output,
-                        "                impl_.{}(req, stream).await;",
-                        method_name
-                    )
-                    .unwrap();
+                    writeln!(self.output, "                impl_.{}(req, stream).await;", method_name).unwrap();
                     writeln!(self.output, "            }}").unwrap();
                 }
             }

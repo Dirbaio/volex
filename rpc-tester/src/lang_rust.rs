@@ -1,8 +1,8 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
-use crate::Transport;
 use crate::common::{compile_schema, get_tester_dir};
+use crate::Transport;
 
 fn build_binary(bin_name: &str) -> Result<(), String> {
     let tester_dir = get_tester_dir();

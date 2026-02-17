@@ -46,9 +46,7 @@ fn connect_http(url: &str) -> Client<HttpClient> {
     Rc::new(TestServiceClient::new(HttpClient::new(url)))
 }
 
-async fn connect_ws(
-    url: &str,
-) -> Result<Client<Rc<PacketClient<WebSocketTransport>>>, Box<dyn std::error::Error>> {
+async fn connect_ws(url: &str) -> Result<Client<Rc<PacketClient<WebSocketTransport>>>, Box<dyn std::error::Error>> {
     let (ws, _) = tokio_tungstenite::connect_async(url).await?;
     let transport = WebSocketTransport::new(ws);
     let packet_client = Rc::new(PacketClient::new(transport));
@@ -80,24 +78,12 @@ async fn run_tests<Tr: volex::rpc::ClientTransport + 'static>(
     // Test streaming
     run_test("stream_zero_items", test_stream_zero_items(client).await);
     run_test("stream_one_item", test_stream_one_item(client).await);
-    run_test(
-        "stream_multiple_items",
-        test_stream_multiple_items(client).await,
-    );
+    run_test("stream_multiple_items", test_stream_multiple_items(client).await);
 
     // Test error handling
-    run_test(
-        "error_unary_success",
-        test_error_unary_success(client).await,
-    );
-    run_test(
-        "error_unary_failure",
-        test_error_unary_failure(client).await,
-    );
-    run_test(
-        "error_stream_after_items",
-        test_error_stream_after_items(client).await,
-    );
+    run_test("error_unary_success", test_error_unary_success(client).await);
+    run_test("error_unary_failure", test_error_unary_failure(client).await);
+    run_test("error_stream_after_items", test_error_stream_after_items(client).await);
 
     // Test multiple simultaneous streams
     run_test(
@@ -107,10 +93,7 @@ async fn run_tests<Tr: volex::rpc::ClientTransport + 'static>(
 
     // Test non-message types
     run_test("non-message_add", test_non_message_add(client).await);
-    run_test(
-        "non-message_add_zero",
-        test_non_message_add_zero(client).await,
-    );
+    run_test("non-message_add_zero", test_non_message_add_zero(client).await);
     run_test(
         "non-message_stream_strings",
         test_non_message_stream_strings(client).await,
@@ -118,14 +101,8 @@ async fn run_tests<Tr: volex::rpc::ClientTransport + 'static>(
 
     // Test cancellation (skip for HTTP — no persistent connection for cancel signaling)
     if !skip_cancel {
-        run_test(
-            "cancel_unary_request",
-            test_cancel_unary_request(client).await,
-        );
-        run_test(
-            "cancel_stream_request",
-            test_cancel_stream_request(client).await,
-        );
+        run_test("cancel_unary_request", test_cancel_unary_request(client).await);
+        run_test("cancel_stream_request", test_cancel_stream_request(client).await);
     }
 
     println!("All tests passed!");
@@ -172,11 +149,7 @@ async fn test_echo_simple<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) 
 }
 
 async fn test_echo_empty<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
-    let resp = client
-        .echo(EchoRequest {
-            text: "".to_string(),
-        })
-        .await?;
+    let resp = client.echo(EchoRequest { text: "".to_string() }).await?;
     if resp.text != "" {
         return Err(format!("expected '', got '{}'", resp.text).into());
     }
@@ -195,9 +168,7 @@ async fn test_echo_unicode<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>)
     Ok(())
 }
 
-async fn test_stream_zero_items<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_stream_zero_items<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let mut stream = client.subscribe(StreamRequest { count: 0 }).await?;
     let err = stream.recv().await.unwrap_err();
     if !err.is_stream_closed() {
@@ -206,9 +177,7 @@ async fn test_stream_zero_items<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_stream_one_item<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_stream_one_item<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let mut stream = client.subscribe(StreamRequest { count: 1 }).await?;
 
     let item = stream.recv().await?;
@@ -227,9 +196,7 @@ async fn test_stream_one_item<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_stream_multiple_items<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_stream_multiple_items<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let mut stream = client.subscribe(StreamRequest { count: 5 }).await?;
 
     for i in 0..5u32 {
@@ -251,9 +218,7 @@ async fn test_stream_multiple_items<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_error_unary_success<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_error_unary_success<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let resp = client
         .maybe_fail(FailRequest {
             should_fail: false,
@@ -266,9 +231,7 @@ async fn test_error_unary_success<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_error_unary_failure<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_error_unary_failure<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let err = client
         .maybe_fail(FailRequest {
             should_fail: true,
@@ -277,9 +240,7 @@ async fn test_error_unary_failure<Tr: volex::rpc::ClientTransport>(
         .await
         .unwrap_err();
     if err.code != ERR_CODE_HANDLER_ERROR {
-        return Err(
-            format!("expected error code {}, got {}", ERR_CODE_HANDLER_ERROR, err.code).into(),
-        );
+        return Err(format!("expected error code {}, got {}", ERR_CODE_HANDLER_ERROR, err.code).into());
     }
     if err.message != "test error" {
         return Err(format!("expected message 'test error', got '{}'", err.message).into());
@@ -287,9 +248,7 @@ async fn test_error_unary_failure<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_error_stream_after_items<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_error_stream_after_items<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let mut stream = client.stream_then_fail(StreamRequest { count: 3 }).await?;
 
     for i in 0..3u32 {
@@ -306,9 +265,7 @@ async fn test_error_stream_after_items<Tr: volex::rpc::ClientTransport>(
 
     let err = stream.recv().await.unwrap_err();
     if err.code != ERR_CODE_HANDLER_ERROR {
-        return Err(
-            format!("expected error code {}, got {}", ERR_CODE_HANDLER_ERROR, err.code).into(),
-        );
+        return Err(format!("expected error code {}, got {}", ERR_CODE_HANDLER_ERROR, err.code).into());
     }
     Ok(())
 }
@@ -341,26 +298,19 @@ async fn test_multiple_simultaneous_streams<Tr: volex::rpc::ClientTransport + 's
 
             let err = stream.recv().await.unwrap_err();
             if !err.is_stream_closed() {
-                return Err(format!(
-                    "stream {}: expected stream closed error, got {:?}",
-                    s, err
-                ));
+                return Err(format!("stream {}: expected stream closed error, got {:?}", s, err));
             }
             Ok::<(), String>(())
         }));
     }
 
     for handle in handles {
-        handle
-            .await?
-            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        handle.await?.map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
     }
     Ok(())
 }
 
-async fn test_non_message_add<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_non_message_add<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let resp = client.add(5).await?;
     if resp != 15 {
         return Err(format!("expected 15, got {}", resp).into());
@@ -368,9 +318,7 @@ async fn test_non_message_add<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_non_message_add_zero<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_non_message_add_zero<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let resp = client.add(0).await?;
     if resp != 10 {
         return Err(format!("expected 10, got {}", resp).into());
@@ -378,9 +326,7 @@ async fn test_non_message_add_zero<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_non_message_stream_strings<Tr: volex::rpc::ClientTransport>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_non_message_stream_strings<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
     let mut stream = client.get_strings(3).await?;
 
     for i in 0..3 {
@@ -398,13 +344,9 @@ async fn test_non_message_stream_strings<Tr: volex::rpc::ClientTransport>(
     Ok(())
 }
 
-async fn test_cancel_unary_request<Tr: volex::rpc::ClientTransport + 'static>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_cancel_unary_request<Tr: volex::rpc::ClientTransport + 'static>(client: &Client<Tr>) -> TestResult {
     let client2 = client.clone();
-    let handle = tokio::task::spawn_local(async move {
-        client2.slow_unary(SlowRequest { delay_ms: 5000 }).await
-    });
+    let handle = tokio::task::spawn_local(async move { client2.slow_unary(SlowRequest { delay_ms: 5000 }).await });
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -425,9 +367,7 @@ async fn test_cancel_unary_request<Tr: volex::rpc::ClientTransport + 'static>(
     Ok(())
 }
 
-async fn test_cancel_stream_request<Tr: volex::rpc::ClientTransport + 'static>(
-    client: &Client<Tr>,
-) -> TestResult {
+async fn test_cancel_stream_request<Tr: volex::rpc::ClientTransport + 'static>(client: &Client<Tr>) -> TestResult {
     let mut stream = client.slow_stream(SlowRequest { delay_ms: 100 }).await?;
 
     for i in 0..2u32 {

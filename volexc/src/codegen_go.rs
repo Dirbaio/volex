@@ -1431,7 +1431,12 @@ impl<'a> GoCodeGenerator<'a> {
 
             match &method.response.node {
                 ServiceResponse::Unary(resp_ty) => {
-                    writeln!(self.output, "\t\t\t\tresp, err := impl.{}(call.Context(), req)", method_name).unwrap();
+                    writeln!(
+                        self.output,
+                        "\t\t\t\tresp, err := impl.{}(call.Context(), req)",
+                        method_name
+                    )
+                    .unwrap();
                     writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
                     writeln!(
                         self.output,
@@ -1451,7 +1456,12 @@ impl<'a> GoCodeGenerator<'a> {
                         service_name, method_name
                     )
                     .unwrap();
-                    writeln!(self.output, "\t\t\t\terr = impl.{}(call.Context(), req, stream)", method_name).unwrap();
+                    writeln!(
+                        self.output,
+                        "\t\t\t\terr = impl.{}(call.Context(), req, stream)",
+                        method_name
+                    )
+                    .unwrap();
                     writeln!(self.output, "\t\t\t\tif err != nil {{").unwrap();
                     writeln!(
                         self.output,

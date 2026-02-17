@@ -132,7 +132,11 @@ pub trait ClientTransport {
     fn call_unary(&self, method_index: u32, payload: Vec<u8>) -> impl Future<Output = Result<Vec<u8>, RpcError>>;
 
     /// Makes a streaming RPC call. Returns a stream receiver.
-    fn call_stream(&self, method_index: u32, payload: Vec<u8>) -> impl Future<Output = Result<StreamReceiver, RpcError>>;
+    fn call_stream(
+        &self,
+        method_index: u32,
+        payload: Vec<u8>,
+    ) -> impl Future<Output = Result<StreamReceiver, RpcError>>;
 }
 
 impl<T: ClientTransport> ClientTransport for Rc<T> {
@@ -140,7 +144,11 @@ impl<T: ClientTransport> ClientTransport for Rc<T> {
         (**self).call_unary(method_index, payload)
     }
 
-    fn call_stream(&self, method_index: u32, payload: Vec<u8>) -> impl Future<Output = Result<StreamReceiver, RpcError>> {
+    fn call_stream(
+        &self,
+        method_index: u32,
+        payload: Vec<u8>,
+    ) -> impl Future<Output = Result<StreamReceiver, RpcError>> {
         (**self).call_stream(method_index, payload)
     }
 }
@@ -900,10 +908,7 @@ mod http_transport {
             }
         }
 
-        async fn do_request(
-            &self,
-            body: Vec<u8>,
-        ) -> Result<hyper::Response<Incoming>, RpcError> {
+        async fn do_request(&self, body: Vec<u8>) -> Result<hyper::Response<Incoming>, RpcError> {
             let stream = tokio::net::TcpStream::connect((&*self.host, self.port))
                 .await
                 .map_err(|e| RpcError::new(0, e.to_string()))?;
@@ -1181,9 +1186,7 @@ mod http_transport {
 
         fn call(&self, req: hyper::Request<Incoming>) -> Self::Future {
             let call_tx = self.call_tx.clone();
-            Box::pin(async move {
-                Ok(handle_request(req, call_tx).await)
-            })
+            Box::pin(async move { Ok(handle_request(req, call_tx).await) })
         }
     }
 
@@ -1353,8 +1356,8 @@ mod ws_transport {
     use futures_util::sink::SinkExt;
     use futures_util::stream::StreamExt;
     use tokio::sync::mpsc;
-    use tokio_tungstenite::tungstenite::Message;
     use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::Message;
 
     use super::*;
 

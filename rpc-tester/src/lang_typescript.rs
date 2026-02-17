@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 
-use crate::Transport;
 use crate::common::{compile_schema, get_tester_dir};
+use crate::Transport;
 
 pub fn run_client(addr: &str, transport: Transport) -> Result<(), String> {
     let tester_dir = get_tester_dir();

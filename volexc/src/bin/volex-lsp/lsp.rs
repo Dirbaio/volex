@@ -387,11 +387,7 @@ impl VolexLsp {
             }
         }
 
-        if actions.is_empty() {
-            None
-        } else {
-            Some(actions)
-        }
+        if actions.is_empty() { None } else { Some(actions) }
     }
 }
 

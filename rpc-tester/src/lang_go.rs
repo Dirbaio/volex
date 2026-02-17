@@ -1,8 +1,8 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
-use crate::Transport;
 use crate::common::{compile_schema, get_tester_dir};
+use crate::Transport;
 
 pub fn start_server(transport: Transport) -> Result<(Child, String), String> {
     let tester_dir = get_tester_dir();
