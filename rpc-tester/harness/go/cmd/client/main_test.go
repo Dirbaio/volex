@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"rpc_test/gen"
 
 	volex "github.com/volex/runtime"
@@ -29,6 +30,19 @@ func connectTCP(t *testing.T, addr string, ctx context.Context) *gen.TestService
 
 func connectHTTP(url string) *gen.TestServiceClient {
 	return gen.NewTestServiceClient(volex.NewHttpClient(url))
+}
+
+func connectWS(t *testing.T, url string, ctx context.Context) *gen.TestServiceClient {
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("failed to connect websocket: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	transport := volex.NewWebSocketTransport(conn)
+	packetClient := volex.NewPacketClient(transport)
+	go packetClient.Run(ctx)
+	return gen.NewTestServiceClient(packetClient)
 }
 
 func TestRPC(t *testing.T) {
@@ -53,6 +67,8 @@ func TestRPC(t *testing.T) {
 	case "http":
 		client = connectHTTP(addr)
 		skipCancel = true
+	case "ws":
+		client = connectWS(t, addr, ctx)
 	default:
 		t.Fatalf("unknown transport: %s", transportType)
 	}

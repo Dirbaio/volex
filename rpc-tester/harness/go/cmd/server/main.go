@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"rpc_test/gen"
 
 	volex "github.com/volex/runtime"
@@ -176,6 +177,38 @@ func serveHTTP() {
 	srv.Serve(listener)
 }
 
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+func serveWS() {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to listen: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rpc", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		transport := volex.NewWebSocketTransport(conn)
+		server := volex.NewPacketServer(transport)
+		impl := &TestServiceImpl{}
+		go server.Run(ctx)
+		gen.ServeTestService(ctx, server, impl)
+	})
+
+	fmt.Printf("ws://%s/rpc\n", listener.Addr().String())
+
+	srv := &http.Server{Handler: mux}
+	srv.Serve(listener)
+}
+
 func main() {
 	transport := os.Getenv("TRANSPORT")
 	if transport == "" {
@@ -187,6 +220,8 @@ func main() {
 		serveTCP()
 	case "http":
 		serveHTTP()
+	case "ws":
+		serveWS()
 	default:
 		log.Fatalf("unknown transport: %s", transport)
 	}

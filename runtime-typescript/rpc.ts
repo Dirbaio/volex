@@ -216,6 +216,82 @@ export class TcpTransport implements PacketTransport {
 }
 
 // ============================================================================
+// WebSocket Transport (for Node.js and browsers)
+// ============================================================================
+
+export class WebSocketTransport implements PacketTransport {
+  private ws: WebSocket;
+  private queue: Uint8Array[] = [];
+  private waiters: Array<{
+    resolve: (value: Uint8Array) => void;
+    reject: (error: Error) => void;
+  }> = [];
+  private closed = false;
+  private error: Error | null = null;
+
+  constructor(ws: WebSocket) {
+    this.ws = ws;
+    ws.binaryType = 'arraybuffer';
+
+    ws.addEventListener('message', (event: MessageEvent) => {
+      const data = new Uint8Array(event.data as ArrayBuffer);
+      if (this.waiters.length > 0) {
+        const waiter = this.waiters.shift()!;
+        waiter.resolve(data);
+      } else {
+        this.queue.push(data);
+      }
+    });
+
+    ws.addEventListener('close', () => {
+      this.closed = true;
+      const err = new Error('websocket closed');
+      this.error = err;
+      for (const waiter of this.waiters) {
+        waiter.reject(err);
+      }
+      this.waiters = [];
+    });
+
+    ws.addEventListener('error', () => {
+      this.closed = true;
+      const err = new Error('websocket error');
+      this.error = err;
+      for (const waiter of this.waiters) {
+        waiter.reject(err);
+      }
+      this.waiters = [];
+    });
+  }
+
+  async send(data: Uint8Array): Promise<void> {
+    if (this.closed) {
+      throw this.error || new Error('websocket closed');
+    }
+    this.ws.send(data);
+  }
+
+  async recv(): Promise<Uint8Array> {
+    if (this.queue.length > 0) {
+      return this.queue.shift()!;
+    }
+    if (this.closed) {
+      throw this.error || new Error('websocket closed');
+    }
+    return new Promise((resolve, reject) => {
+      this.waiters.push({ resolve, reject });
+    });
+  }
+
+  close(): void {
+    if (!this.closed) {
+      this.closed = true;
+      this.ws.close();
+    }
+  }
+}
+
+// ============================================================================
 // High-level Transport Interfaces
 // ============================================================================
 

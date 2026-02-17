@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use generated::*;
 use tokio::net::TcpStream;
-use volex::rpc::{ERR_CODE_HANDLER_ERROR, HttpClient, PacketClient, TcpTransport};
+use volex::rpc::{ERR_CODE_HANDLER_ERROR, HttpClient, PacketClient, TcpTransport, WebSocketTransport};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 type Client<Tr> = Rc<TestServiceClient<Tr>>;
@@ -44,6 +44,26 @@ async fn connect_tcp(addr: &str) -> Result<Client<Rc<PacketClient<TcpTransport>>
 
 fn connect_http(url: &str) -> Client<HttpClient> {
     Rc::new(TestServiceClient::new(HttpClient::new(url)))
+}
+
+async fn connect_ws(
+    url: &str,
+) -> Result<Client<Rc<PacketClient<WebSocketTransport>>>, Box<dyn std::error::Error>> {
+    let (ws, _) = tokio_tungstenite::connect_async(url).await?;
+    let transport = WebSocketTransport::new(ws);
+    let packet_client = Rc::new(PacketClient::new(transport));
+    let client = Rc::new(TestServiceClient::new(packet_client.clone()));
+
+    tokio::task::spawn_local({
+        let packet_client = packet_client.clone();
+        async move {
+            if let Err(e) = packet_client.run().await {
+                eprintln!("Client error: {}", e);
+            }
+        }
+    });
+
+    Ok(client)
 }
 
 async fn run_tests<Tr: volex::rpc::ClientTransport + 'static>(
@@ -128,6 +148,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "http" => {
                     let client = connect_http(&addr);
                     run_tests(&client, true).await
+                }
+                "ws" => {
+                    let client = connect_ws(&addr).await?;
+                    run_tests(&client, false).await
                 }
                 other => Err(format!("unknown transport: {}", other).into()),
             }

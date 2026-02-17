@@ -1,7 +1,7 @@
 // TypeScript RPC test harness client
 
 import * as net from 'net';
-import { TcpTransport, PacketClient, HttpClient, RpcError, ERR_CODE_HANDLER_ERROR } from 'volex/rpc';
+import { TcpTransport, PacketClient, HttpClient, WebSocketTransport, RpcError, ERR_CODE_HANDLER_ERROR } from 'volex/rpc';
 import {
   TestServiceClient,
   EchoRequest,
@@ -467,6 +467,23 @@ async function main() {
     case 'http': {
       client = new TestServiceClient(new HttpClient(addr));
       close = () => {};
+      break;
+    }
+    case 'ws': {
+      const ws = new WebSocket(addr);
+      await new Promise<void>((resolve, reject) => {
+        ws.addEventListener('open', () => resolve());
+        ws.addEventListener('error', (e) => reject(e));
+      });
+      const transport = new WebSocketTransport(ws);
+      const packetClient = new PacketClient(transport);
+      client = new TestServiceClient(packetClient);
+      packetClient.run().catch((e: unknown) => {
+        if (!(e instanceof Error && e.message.includes('closed'))) {
+          console.error('Client error:', e);
+        }
+      });
+      close = () => transport.close();
       break;
     }
     default:

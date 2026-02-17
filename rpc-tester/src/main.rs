@@ -50,6 +50,7 @@ impl Language {
 pub enum Transport {
     Tcp,
     Http,
+    Ws,
 }
 
 impl Transport {
@@ -57,6 +58,7 @@ impl Transport {
         match self {
             Transport::Tcp => "tcp",
             Transport::Http => "http",
+            Transport::Ws => "ws",
         }
     }
 
@@ -64,6 +66,7 @@ impl Transport {
         match self {
             Transport::Tcp => "TCP",
             Transport::Http => "HTTP",
+            Transport::Ws => "WebSocket",
         }
     }
 }

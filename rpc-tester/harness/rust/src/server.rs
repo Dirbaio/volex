@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use generated::*;
 use tokio::net::TcpListener;
-use volex::rpc::{HttpServer, PacketServer, RpcError, StreamSender, TcpTransport};
+use volex::rpc::{HttpServer, PacketServer, RpcError, StreamSender, TcpTransport, WebSocketTransport};
 
 /// A guard that runs a closure when dropped.
 struct OnDrop<F: FnOnce()>(Option<F>);
@@ -180,6 +180,28 @@ async fn serve_http() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn serve_ws() -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+
+    // Print the URL for the client to connect to
+    println!("ws://{}/rpc", addr);
+
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let ws = tokio_tungstenite::accept_async(stream).await?;
+        let transport = WebSocketTransport::new(ws);
+        let server = PacketServer::new(transport);
+        let impl_ = Rc::new(TestServiceImpl::new());
+
+        tokio::task::spawn_local(async move {
+            let run_fut = server.run();
+            let serve_fut = serve_test_service(&server, impl_);
+            let _ = tokio::join!(run_fut, serve_fut);
+        });
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = std::env::var("TRANSPORT").unwrap_or_else(|_| "tcp".to_string());
@@ -190,6 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match transport.as_str() {
                 "tcp" => serve_tcp().await,
                 "http" => serve_http().await,
+                "ws" => serve_ws().await,
                 other => Err(format!("unknown transport: {}", other).into()),
             }
         })

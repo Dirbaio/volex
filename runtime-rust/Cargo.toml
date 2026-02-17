@@ -7,6 +7,7 @@ edition = "2024"
 default = []
 rpc = ["tokio"]
 http = ["rpc", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:http", "dep:bytes"]
+ws = ["rpc", "dep:tokio-tungstenite", "dep:futures-util"]
 
 [dependencies]
 tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "macros"], optional = true }
@@ -15,3 +16,5 @@ hyper-util = { version = "0.1", features = ["tokio"], optional = true }
 http-body-util = { version = "0.1", optional = true }
 http = { version = "1", optional = true }
 bytes = { version = "1", optional = true }
+tokio-tungstenite = { version = "0.26", optional = true }
+futures-util = { version = "0.3", optional = true }

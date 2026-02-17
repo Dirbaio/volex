@@ -1341,3 +1341,90 @@ mod http_transport {
 
 #[cfg(feature = "http")]
 pub use http_transport::{HttpClient, HttpServer, HttpServerCall};
+
+// ============================================================================
+// WebSocket Transport
+// ============================================================================
+
+#[cfg(feature = "ws")]
+mod ws_transport {
+    use std::cell::RefCell;
+
+    use futures_util::sink::SinkExt;
+    use futures_util::stream::StreamExt;
+    use tokio::sync::mpsc;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::WebSocketStream;
+
+    use super::*;
+
+    /// WebSocket transport implementing `PacketTransport`.
+    /// Each WebSocket binary message = one packet.
+    pub struct WebSocketTransport {
+        write_tx: mpsc::Sender<Vec<u8>>,
+        read_rx: RefCell<mpsc::Receiver<Vec<u8>>>,
+    }
+
+    impl WebSocketTransport {
+        /// Creates a new WebSocket transport from a `WebSocketStream`.
+        /// Spawns read/write loops on the local task set.
+        pub fn new<S>(ws: WebSocketStream<S>) -> Self
+        where
+            S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + 'static,
+        {
+            let (mut ws_write, mut ws_read) = ws.split();
+            let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(64);
+            let (read_tx, read_rx) = mpsc::channel::<Vec<u8>>(64);
+
+            // Write loop: take packets from channel, send as binary WS messages
+            tokio::task::spawn_local(async move {
+                while let Some(data) = write_rx.recv().await {
+                    if ws_write.send(Message::Binary(data.into())).await.is_err() {
+                        return;
+                    }
+                }
+                let _ = ws_write.close().await;
+            });
+
+            // Read loop: read binary WS messages, send to channel
+            tokio::task::spawn_local(async move {
+                while let Some(Ok(msg)) = ws_read.next().await {
+                    match msg {
+                        Message::Binary(data) => {
+                            if read_tx.send(data.into()).await.is_err() {
+                                return;
+                            }
+                        }
+                        Message::Close(_) => return,
+                        _ => {} // Ignore text, ping, pong
+                    }
+                }
+            });
+
+            Self {
+                write_tx,
+                read_rx: RefCell::new(read_rx),
+            }
+        }
+    }
+
+    impl PacketTransport for WebSocketTransport {
+        async fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+            self.write_tx
+                .send(data)
+                .await
+                .map_err(|_| RpcError::new(0, "websocket closed"))
+        }
+
+        async fn recv(&self) -> Result<Vec<u8>, RpcError> {
+            self.read_rx
+                .borrow_mut()
+                .recv()
+                .await
+                .ok_or_else(|| RpcError::new(0, "websocket closed"))
+        }
+    }
+}
+
+#[cfg(feature = "ws")]
+pub use ws_transport::WebSocketTransport;

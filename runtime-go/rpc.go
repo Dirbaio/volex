@@ -653,6 +653,98 @@ func (t *TCPTransport) readFull(buf []byte) (int, error) {
 }
 
 // ============================================================================
+// WebSocket PacketTransport
+// ============================================================================
+
+// WebSocketTransport implements PacketTransport over a WebSocket connection.
+// Each WebSocket binary message is one packet (no additional framing needed).
+type WebSocketTransport struct {
+	conn    WebSocketConn
+	recvCh  chan []byte
+	errCh   chan error
+	closeCh chan struct{}
+	once    sync.Once
+	writeMu sync.Mutex
+}
+
+// WebSocketConn is the interface required from a WebSocket connection.
+type WebSocketConn interface {
+	ReadMessage() (messageType int, p []byte, err error)
+	WriteMessage(messageType int, data []byte) error
+	Close() error
+}
+
+// NewWebSocketTransport creates a new WebSocket transport.
+func NewWebSocketTransport(conn WebSocketConn) *WebSocketTransport {
+	t := &WebSocketTransport{
+		conn:    conn,
+		recvCh:  make(chan []byte, 100),
+		errCh:   make(chan error, 1),
+		closeCh: make(chan struct{}),
+	}
+	go t.readLoop()
+	return t
+}
+
+func (t *WebSocketTransport) readLoop() {
+	for {
+		messageType, message, err := t.conn.ReadMessage()
+		if err != nil {
+			select {
+			case t.errCh <- err:
+			case <-t.closeCh:
+			}
+			return
+		}
+		// Only accept binary messages (type 2)
+		if messageType != 2 {
+			continue
+		}
+		select {
+		case t.recvCh <- message:
+		case <-t.closeCh:
+			return
+		}
+	}
+}
+
+// Send sends a binary WebSocket message.
+func (t *WebSocketTransport) Send(ctx context.Context, data []byte) error {
+	select {
+	case <-t.closeCh:
+		return fmt.Errorf("transport closed")
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	return t.conn.WriteMessage(2, data) // 2 = BinaryMessage
+}
+
+// Recv receives a binary WebSocket message.
+func (t *WebSocketTransport) Recv(ctx context.Context) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-t.closeCh:
+		return nil, fmt.Errorf("transport closed")
+	case err := <-t.errCh:
+		return nil, err
+	case data := <-t.recvCh:
+		return data, nil
+	}
+}
+
+// Close closes the transport.
+func (t *WebSocketTransport) Close() error {
+	t.once.Do(func() {
+		close(t.closeCh)
+	})
+	return t.conn.Close()
+}
+
+// ============================================================================
 // HTTP Client (implements ClientTransport directly)
 // ============================================================================
 

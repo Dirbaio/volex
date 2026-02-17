@@ -12,3 +12,4 @@ cargo run --bin tester -- --lang typescript
 
 cargo run -p rpc-tester -- --all --transport tcp
 cargo run -p rpc-tester -- --all --transport http
+cargo run -p rpc-tester -- --all --transport ws
