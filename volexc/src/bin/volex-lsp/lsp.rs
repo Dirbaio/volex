@@ -383,6 +383,11 @@ impl VolexLsp {
                         actions.push(create_renumber_action(uri, &doc.text, item, "Renumber union variants"));
                     }
                 }
+                Item::Service(s) => {
+                    if !s.methods.is_empty() {
+                        actions.push(create_renumber_action(uri, &doc.text, item, "Renumber service methods"));
+                    }
+                }
                 _ => {}
             }
         }
@@ -422,6 +427,17 @@ fn create_renumber_action(uri: &Url, text: &str, item: &Item, title: &str) -> Co
             for (idx, variant) in u.variants.iter().enumerate() {
                 let new_index = (idx + 1) as u32;
                 let index_span = variant.node.index.span;
+                changes.push(TextEdit {
+                    range: span_to_range(text, index_span),
+                    new_text: new_index.to_string(),
+                });
+            }
+        }
+        Item::Service(s) => {
+            // Service methods must start at index 1 (0 is not allowed)
+            for (idx, method) in s.methods.iter().enumerate() {
+                let new_index = (idx + 1) as u32;
+                let index_span = method.node.index.span;
                 changes.push(TextEdit {
                     range: span_to_range(text, index_span),
                     new_text: new_index.to_string(),
