@@ -1,5 +1,6 @@
 //! Code generator for volex schemas.
 
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use crate::schema::*;
@@ -15,7 +16,7 @@ pub enum SerdeMode {
     Feature,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum DerivableTrait {
     Debug,
     Clone,
@@ -35,6 +36,7 @@ struct CodeGenerator<'a> {
     schema: &'a Schema,
     output: String,
     serde_mode: SerdeMode,
+    derive_checking: HashSet<(String, DerivableTrait)>,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -43,6 +45,7 @@ impl<'a> CodeGenerator<'a> {
             schema,
             output: String::new(),
             serde_mode,
+            derive_checking: HashSet::new(),
         }
     }
 
@@ -103,7 +106,7 @@ impl<'a> CodeGenerator<'a> {
     }
 
     /// Returns true if the item can derive the specified trait.
-    fn can_derive_item(&self, item: &Item, trait_: DerivableTrait) -> bool {
+    fn can_derive_item(&mut self, item: &Item, trait_: DerivableTrait) -> bool {
         match item {
             Item::Struct(i) => i.fields.iter().all(|f| self.can_derive(&f.ty.node, trait_)),
             Item::Message(i) => i.fields.iter().all(|f| self.can_derive(&f.ty.node, trait_)),
@@ -118,7 +121,7 @@ impl<'a> CodeGenerator<'a> {
     }
 
     /// Returns true if the type can derive the specified trait.
-    fn can_derive(&self, ty: &Type, trait_: DerivableTrait) -> bool {
+    fn can_derive(&mut self, ty: &Type, trait_: DerivableTrait) -> bool {
         match ty {
             Type::Bool
             | Type::U8
@@ -146,7 +149,16 @@ impl<'a> CodeGenerator<'a> {
                 DerivableTrait::Hash => false,
                 _ => self.can_derive(k, trait_) && self.can_derive(v, trait_),
             },
-            Type::Named(name) => self.can_derive_item(self.schema.item(name).unwrap(), trait_),
+            Type::Named(name) => {
+                let key = (name.clone(), trait_);
+                if !self.derive_checking.insert(key.clone()) {
+                    // Cycle detected: assume derivable (container types already handle Copy/Hash restrictions)
+                    return true;
+                }
+                let result = self.can_derive_item(self.schema.item(name).unwrap(), trait_);
+                self.derive_checking.remove(&key);
+                result
+            }
         }
     }
 

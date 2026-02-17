@@ -249,3 +249,8 @@ message MapStringArrayMapStringU8 {
 message MapStringArrayMapStringU8Optional {
     values?: {string: [{string: u8}]} = 1;
 }
+
+// Recursive message
+message Node {
+    children: [Node] = 1;
+}

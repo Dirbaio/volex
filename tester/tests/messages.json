@@ -1228,5 +1228,44 @@
         ]
       }
     }
+  },
+  {
+    "type": "Node",
+    "description": "recursive message: empty children",
+    "hex": "0c010000",
+    "json": {
+      "children": []
+    }
+  },
+  {
+    "type": "Node",
+    "description": "recursive message: one empty child",
+    "hex": "0c05010c01000000",
+    "json": {
+      "children": [
+        {
+          "children": []
+        }
+      ]
+    }
+  },
+  {
+    "type": "Node",
+    "description": "recursive message: nested children",
+    "hex": "0c0d020c05010c010000000c01000000",
+    "json": {
+      "children": [
+        {
+          "children": [
+            {
+              "children": []
+            }
+          ]
+        },
+        {
+          "children": []
+        }
+      ]
+    }
   }
 ]
