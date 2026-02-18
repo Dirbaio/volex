@@ -898,7 +898,10 @@ mod http_transport {
             }
         }
 
-        async fn do_request(&self, body: Vec<u8>) -> Result<hyper::Response<Incoming>, RpcError> {
+        async fn do_connect(
+            &self,
+            body: Vec<u8>,
+        ) -> Result<(hyper::Response<Incoming>, tokio::task::JoinHandle<()>), RpcError> {
             let stream = tokio::net::TcpStream::connect((&*self.host, self.port))
                 .await
                 .map_err(|e| RpcError::new(0, e.to_string()))?;
@@ -909,7 +912,8 @@ mod http_transport {
                 .await
                 .map_err(|e| RpcError::new(0, e.to_string()))?;
 
-            tokio::task::spawn_local(async move {
+            // Spawn the connection driver. Aborting this handle closes the TCP socket.
+            let conn_handle = tokio::task::spawn_local(async move {
                 let _ = conn.await;
             });
 
@@ -922,10 +926,12 @@ mod http_transport {
                 .body(Full::new(Bytes::from(body)))
                 .map_err(|e| RpcError::new(0, e.to_string()))?;
 
-            sender
+            let resp = sender
                 .send_request(req)
                 .await
-                .map_err(|e| RpcError::new(0, e.to_string()))
+                .map_err(|e| RpcError::new(0, e.to_string()))?;
+
+            Ok((resp, conn_handle))
         }
     }
 
@@ -952,67 +958,18 @@ mod http_transport {
         RpcError::new(ERR_CODE_HANDLER_ERROR, "HTTP error")
     }
 
-    fn parse_stream_events(data: &[u8], event_tx: &mpsc::Sender<StreamEvent>) {
-        let mut buf = data;
-        loop {
-            if buf.is_empty() {
-                let _ = event_tx.try_send(StreamEvent::End);
-                return;
-            }
-            let length = match decode_leb128_u64(&mut buf) {
-                Ok(l) => l as usize,
-                Err(_) => {
-                    let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(0, "invalid LEB128 in stream")));
-                    return;
-                }
-            };
-            if buf.len() < length || length == 0 {
-                let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(0, "truncated stream message")));
-                return;
-            }
-            let msg = &buf[..length];
-            buf = &buf[length..];
-
-            let msg_type = msg[0];
-            let msg_payload = &msg[1..];
-
-            match msg_type {
-                RPC_TYPE_STREAM_ITEM => {
-                    if event_tx.try_send(StreamEvent::Item(msg_payload.to_vec())).is_err() {
-                        return;
-                    }
-                }
-                RPC_TYPE_STREAM_END => {
-                    let _ = event_tx.try_send(StreamEvent::End);
-                    return;
-                }
-                RPC_TYPE_ERROR => {
-                    let mut ebuf = msg_payload;
-                    let code = decode_leb128_u64(&mut ebuf).unwrap_or(0) as u32;
-                    let msg_len = decode_leb128_u64(&mut ebuf).unwrap_or(0) as usize;
-                    let msg = if ebuf.len() >= msg_len {
-                        String::from_utf8_lossy(&ebuf[..msg_len]).to_string()
-                    } else {
-                        "unknown error".to_string()
-                    };
-                    let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(code, msg)));
-                    return;
-                }
-                _ => {
-                    let _ = event_tx.try_send(StreamEvent::Error(RpcError::new(0, "unknown stream message type")));
-                    return;
-                }
-            }
-        }
-    }
-
     impl ClientTransport for HttpClient {
         async fn call_unary(&self, method_index: u32, payload: Vec<u8>) -> Result<Vec<u8>, RpcError> {
             let mut body = Vec::new();
             encode_leb128_u64(method_index as u64, &mut body);
             body.extend_from_slice(&payload);
 
-            let resp = self.do_request(body).await?;
+            let (resp, conn_handle) = self.do_connect(body).await?;
+
+            // Abort the connection when this future is dropped (cancelled).
+            // This closes the TCP socket, which the server detects as cancellation.
+            let _conn_guard = OnDrop::new(move || conn_handle.abort());
+
             let status = resp.status();
             let content_type = get_header(&resp, "content-type");
 
@@ -1035,27 +992,117 @@ mod http_transport {
             encode_leb128_u64(method_index as u64, &mut body);
             body.extend_from_slice(&payload);
 
-            let resp = self.do_request(body).await?;
+            let (resp, conn_handle) = self.do_connect(body).await?;
             let status = resp.status();
             let content_type = get_header(&resp, "content-type");
 
-            // Collect the full body
-            let full_body = resp
-                .into_body()
-                .collect()
-                .await
-                .map_err(|e| RpcError::new(0, e.to_string()))?
-                .to_bytes();
-
             if !status.is_success() {
+                let full_body = resp
+                    .into_body()
+                    .collect()
+                    .await
+                    .map_err(|e| RpcError::new(0, e.to_string()))?
+                    .to_bytes();
                 return Err(parse_http_error(&content_type, &full_body));
             }
 
             let (event_tx, event_rx) = mpsc::channel(16);
-            let (cancel_tx, _cancel_rx) = oneshot::channel();
+            let (cancel_tx, cancel_rx) = oneshot::channel();
 
-            // Parse stream messages from the collected body
-            parse_stream_events(&full_body, &event_tx);
+            // Spawn a task that reads the streaming body. When cancelled
+            // (StreamReceiver dropped), abort the connection to close the
+            // TCP socket so the server detects cancellation.
+            tokio::task::spawn_local(async move {
+                let read_body = async {
+                    let mut incoming = resp.into_body();
+                    let mut buf = Vec::new();
+
+                    loop {
+                        match incoming.frame().await {
+                            Some(Ok(frame)) => {
+                                if let Some(chunk) = frame.data_ref() {
+                                    buf.extend_from_slice(chunk);
+
+                                    // Try to parse as many complete messages as possible.
+                                    loop {
+                                        let mut cursor = buf.as_slice();
+                                        let original_len = cursor.len();
+
+                                        if cursor.is_empty() {
+                                            break;
+                                        }
+
+                                        let length = match decode_leb128_u64(&mut cursor) {
+                                            Ok(l) => l as usize,
+                                            Err(_) => break,
+                                        };
+
+                                        let header_len = original_len - cursor.len();
+
+                                        if cursor.len() < length || length == 0 {
+                                            break;
+                                        }
+
+                                        let msg = &cursor[..length];
+                                        let msg_type = msg[0];
+                                        let msg_payload = &msg[1..];
+                                        let consumed = header_len + length;
+
+                                        let event = match msg_type {
+                                            RPC_TYPE_STREAM_ITEM => StreamEvent::Item(msg_payload.to_vec()),
+                                            RPC_TYPE_STREAM_END => StreamEvent::End,
+                                            RPC_TYPE_ERROR => {
+                                                let mut ebuf = msg_payload;
+                                                let code = decode_leb128_u64(&mut ebuf).unwrap_or(0) as u32;
+                                                let msg_len =
+                                                    decode_leb128_u64(&mut ebuf).unwrap_or(0) as usize;
+                                                let msg = if ebuf.len() >= msg_len {
+                                                    String::from_utf8_lossy(&ebuf[..msg_len]).to_string()
+                                                } else {
+                                                    "unknown error".to_string()
+                                                };
+                                                StreamEvent::Error(RpcError::new(code, msg))
+                                            }
+                                            _ => {
+                                                StreamEvent::Error(RpcError::new(0, "unknown stream message type"))
+                                            }
+                                        };
+
+                                        let is_terminal =
+                                            matches!(event, StreamEvent::End | StreamEvent::Error(_));
+                                        if event_tx.send(event).await.is_err() {
+                                            return;
+                                        }
+                                        buf.drain(..consumed);
+
+                                        if is_terminal {
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                            Some(Err(e)) => {
+                                let _ =
+                                    event_tx.send(StreamEvent::Error(RpcError::new(0, e.to_string()))).await;
+                                return;
+                            }
+                            None => {
+                                let _ = event_tx.send(StreamEvent::End).await;
+                                return;
+                            }
+                        }
+                    }
+                };
+
+                // When cancel_rx fires (StreamReceiver dropped), abort the
+                // connection to close the TCP socket immediately.
+                tokio::select! {
+                    _ = read_body => {}
+                    _ = cancel_rx => {
+                        conn_handle.abort();
+                    }
+                }
+            });
 
             Ok(StreamReceiver {
                 rx: event_rx,
@@ -1075,8 +1122,11 @@ mod http_transport {
     }
 
     /// A streaming response body that reads from an mpsc channel.
+    /// Also drives the handler future so that when hyper drops this body
+    /// (client disconnect), the handler future is dropped too (structured concurrency).
     struct StreamBody {
         rx: mpsc::Receiver<Vec<u8>>,
+        handler: Option<Pin<Box<dyn Future<Output = ()>>>>,
     }
 
     impl Body for StreamBody {
@@ -1087,6 +1137,13 @@ mod http_transport {
             mut self: Pin<&mut Self>,
             cx: &mut Context<'_>,
         ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+            // Drive the handler forward so it can produce stream items.
+            if let Some(handler) = self.handler.as_mut() {
+                if handler.as_mut().poll(cx).is_ready() {
+                    self.handler = None;
+                }
+            }
+
             match self.rx.poll_recv(cx) {
                 Poll::Ready(Some(msg)) => {
                     // LEB128-frame the message
@@ -1185,17 +1242,49 @@ mod http_transport {
             response_tx: ServerResponseTx::Http { response_tx },
         };
 
-        handler.handle_call(call).await;
+        // Run the handler. For unary/error responses, the handler completes
+        // before we return. For streaming, it sends the stream channel
+        // immediately and keeps producing items; we embed the handler future
+        // in the response body so it's driven by hyper's polling and gets
+        // dropped when the client disconnects (structured concurrency).
+        let mut handler_fut: Pin<Box<dyn Future<Output = ()>>> = Box::pin(async move {
+            handler.handle_call(call).await;
+        });
 
-        // Read the response
-        let resp = match response_rx.await {
-            Ok(r) => r,
-            Err(_) => {
-                return hyper::Response::builder()
-                    .status(500)
-                    .header("connection", "close")
-                    .body(ResponseBody::Full(Full::new(Bytes::new())))
-                    .unwrap();
+        // Wait for the handler to produce a response while driving the handler
+        // future. For unary calls, the handler completes and sends the response.
+        // For streaming calls, the handler sends the stream channel immediately
+        // and keeps running to produce items.
+        // If this future is dropped (client disconnects), the handler future is
+        // also dropped, triggering any cleanup guards.
+        let mut response_rx = std::pin::pin!(response_rx);
+        let mut handler_done = false;
+        let resp = tokio::select! {
+            _ = &mut handler_fut => {
+                handler_done = true;
+                // Handler completed — response should be available now.
+                match response_rx.await {
+                    Ok(r) => r,
+                    Err(_) => {
+                        return hyper::Response::builder()
+                            .status(500)
+                            .header("connection", "close")
+                            .body(ResponseBody::Full(Full::new(Bytes::new())))
+                            .unwrap();
+                    }
+                }
+            }
+            r = &mut response_rx => {
+                match r {
+                    Ok(r) => r,
+                    Err(_) => {
+                        return hyper::Response::builder()
+                            .status(500)
+                            .header("connection", "close")
+                            .body(ResponseBody::Full(Full::new(Bytes::new())))
+                            .unwrap();
+                    }
+                }
             }
         };
 
@@ -1223,12 +1312,20 @@ mod http_transport {
                     .body(ResponseBody::Full(Full::new(Bytes::from(err_body))))
                     .unwrap()
             }
-            HttpServerResponse::Stream(stream_rx) => hyper::Response::builder()
-                .status(200)
-                .header("content-type", CONTENT_TYPE_RPC_STREAM)
-                .header("connection", "close")
-                .body(ResponseBody::Stream(StreamBody { rx: stream_rx }))
-                .unwrap(),
+            HttpServerResponse::Stream(stream_rx) => {
+                // Embed the handler future in the response body so it is
+                // driven by hyper and dropped on client disconnect.
+                // If the handler already completed, don't include it.
+                hyper::Response::builder()
+                    .status(200)
+                    .header("content-type", CONTENT_TYPE_RPC_STREAM)
+                    .header("connection", "close")
+                    .body(ResponseBody::Stream(StreamBody {
+                        rx: stream_rx,
+                        handler: if handler_done { None } else { Some(handler_fut) },
+                    }))
+                    .unwrap()
+            }
         }
     }
 

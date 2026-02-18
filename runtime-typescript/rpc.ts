@@ -295,9 +295,13 @@ export class WebSocketTransport implements PacketTransport {
 // High-level Transport Interfaces
 // ============================================================================
 
+export interface CallOptions {
+  signal?: AbortSignal;
+}
+
 export interface ClientTransport {
-  callUnary(methodIndex: number, payload: Uint8Array): Promise<Uint8Array>;
-  callStream(methodIndex: number, payload: Uint8Array): Promise<StreamReceiver>;
+  callUnary(methodIndex: number, payload: Uint8Array, options?: CallOptions): Promise<Uint8Array>;
+  callStream(methodIndex: number, payload: Uint8Array, options?: CallOptions): Promise<StreamReceiver>;
 }
 
 // ============================================================================
@@ -448,10 +452,13 @@ export class PacketClient implements ClientTransport {
     }
   }
 
-  async callUnary(methodIndex: number, payload: Uint8Array): Promise<Uint8Array> {
+  async callUnary(methodIndex: number, payload: Uint8Array, options?: CallOptions): Promise<Uint8Array> {
     if (this.recvError) {
       throw new RpcError(0, this.recvError.message);
     }
+
+    const signal = options?.signal;
+    signal?.throwIfAborted();
 
     const requestId = this.nextId++;
 
@@ -476,14 +483,35 @@ export class PacketClient implements ClientTransport {
       throw new RpcError(0, (e as Error).message);
     }
 
+    // If signal provided, listen for abort to cancel the request
+    if (signal) {
+      const onAbort = () => {
+        const req = this.pending.get(requestId);
+        if (req && req.type === 'unary') {
+          this.pending.delete(requestId);
+          req.reject(new RpcError(0, 'aborted'));
+          this.sendCancel(requestId);
+        }
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      // Clean up listener when response arrives
+      responsePromise.then(
+        () => signal.removeEventListener('abort', onAbort),
+        () => signal.removeEventListener('abort', onAbort),
+      );
+    }
+
     // Wait for response
     return responsePromise;
   }
 
-  async callStream(methodIndex: number, payload: Uint8Array): Promise<StreamReceiver> {
+  async callStream(methodIndex: number, payload: Uint8Array, options?: CallOptions): Promise<StreamReceiver> {
     if (this.recvError) {
       throw new RpcError(0, this.recvError.message);
     }
+
+    const signal = options?.signal;
+    signal?.throwIfAborted();
 
     const requestId = this.nextId++;
 
@@ -511,12 +539,25 @@ export class PacketClient implements ClientTransport {
       throw new RpcError(0, (e as Error).message);
     }
 
-    return new PacketStreamReceiver(
-      requestId,
-      pendingStream,
-      this.pending,
-      this.transport,
-    );
+    // If signal provided, listen for abort to cancel the stream
+    if (signal) {
+      const onAbort = () => {
+        this.pending.delete(requestId);
+
+        // Wake up any waiting recv() calls and enqueue for future ones
+        const cancelEvent: StreamEvent = { type: 'error', error: new RpcError(0, 'aborted') };
+        for (const waiter of pendingStream.waiters) {
+          waiter(cancelEvent);
+        }
+        pendingStream.waiters = [];
+        pendingStream.queue.push(cancelEvent);
+
+        this.sendCancel(requestId);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    return new PacketStreamReceiver(pendingStream);
   }
 
   private async sendCancel(requestId: number): Promise<void> {
@@ -534,33 +575,16 @@ export class PacketClient implements ClientTransport {
 
 export interface StreamReceiver {
   recv(): Promise<Uint8Array>;
-  cancel(): Promise<void>;
 }
 
 class PacketStreamReceiver implements StreamReceiver {
-  private requestId: number;
   private pending: PendingStream;
-  private allPending: Map<number, PendingRequest>;
-  private transport: PacketTransport;
-  private cancelled = false;
 
-  constructor(
-    requestId: number,
-    pending: PendingStream,
-    allPending: Map<number, PendingRequest>,
-    transport: PacketTransport,
-  ) {
-    this.requestId = requestId;
+  constructor(pending: PendingStream) {
     this.pending = pending;
-    this.allPending = allPending;
-    this.transport = transport;
   }
 
   async recv(): Promise<Uint8Array> {
-    if (this.cancelled) {
-      throw RpcError.streamCancelled();
-    }
-
     // Check queue first
     if (this.pending.queue.length > 0) {
       const event = this.pending.queue.shift()!;
@@ -585,33 +609,6 @@ class PacketStreamReceiver implements StreamReceiver {
         throw event.error;
     }
   }
-
-  async cancel(): Promise<void> {
-    if (this.cancelled) {
-      return;
-    }
-    this.cancelled = true;
-
-    this.allPending.delete(this.requestId);
-
-    // Wake up any waiting recv() calls with a cancellation event
-    const cancelEvent: StreamEvent = { type: 'error', error: RpcError.streamCancelled() };
-    for (const waiter of this.pending.waiters) {
-      waiter(cancelEvent);
-    }
-    this.pending.waiters = [];
-
-    // Send cancel message
-    const buf = new WriteBuf();
-    buf.pushByte(RPC_TYPE_CANCEL);
-    encodeVarint(this.requestId, buf);
-    const packet = buf.toUint8Array();
-    try {
-      await this.transport.send(packet);
-    } catch {
-      // Best effort
-    }
-  }
 }
 
 // ============================================================================
@@ -629,9 +626,9 @@ export class HttpClient implements ClientTransport {
     this.url = url;
   }
 
-  async callUnary(methodIndex: number, payload: Uint8Array): Promise<Uint8Array> {
+  async callUnary(methodIndex: number, payload: Uint8Array, options?: CallOptions): Promise<Uint8Array> {
     const body = this.buildRequestBody(methodIndex, payload);
-    const resp = await this.doRequest(body);
+    const resp = await this.doRequest(body, options?.signal);
 
     if (resp.statusCode !== 200) {
       throw parseHttpError(resp.contentType, resp.body);
@@ -640,70 +637,111 @@ export class HttpClient implements ClientTransport {
     return resp.body;
   }
 
-  async callStream(methodIndex: number, payload: Uint8Array): Promise<StreamReceiver> {
-    const body = this.buildRequestBody(methodIndex, payload);
-    const resp = await this.doRequest(body);
+  async callStream(methodIndex: number, payload: Uint8Array, options?: CallOptions): Promise<StreamReceiver> {
+    const reqBody = this.buildRequestBody(methodIndex, payload);
 
-    if (resp.statusCode !== 200) {
-      throw parseHttpError(resp.contentType, resp.body);
+    const resp = await fetch(this.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': CONTENT_TYPE_RPC,
+      },
+      body: reqBody as Uint8Array<ArrayBuffer>,
+      signal: options?.signal,
+    });
+
+    if (resp.status !== 200) {
+      const respBody = new Uint8Array(await resp.arrayBuffer());
+      const contentType = resp.headers.get('content-type') || '';
+      throw parseHttpError(contentType, respBody);
     }
 
-    // Parse stream messages from body
-    const queue: StreamEvent[] = [];
-    const waiters: Array<(event: StreamEvent) => void> = [];
+    const pendingStream: PendingStream = { type: 'stream', queue: [], waiters: [] };
 
-    let sbuf = new Buf(resp.body, 0);
-    while (sbuf.offset < sbuf.data.length) {
-      const length = decodeVarint(sbuf);
-      if (sbuf.offset + length > sbuf.data.length) {
-        queue.push({ type: 'error', error: new RpcError(0, 'truncated stream message') });
-        break;
-      }
-      const msg = sbuf.data.slice(sbuf.offset, sbuf.offset + length);
-      sbuf.offset += length;
+    // Stream the response body incrementally, parsing and forwarding
+    // stream messages as they arrive.
+    const reader = resp.body!.getReader();
+    (async () => {
+      let buf = new Uint8Array(0);
 
-      if (msg.length === 0) {
-        queue.push({ type: 'error', error: new RpcError(0, 'empty stream message') });
-        break;
-      }
-
-      const msgType = msg[0];
-      const msgPayload = msg.slice(1);
-
-      switch (msgType) {
-        case RPC_TYPE_STREAM_ITEM:
-          queue.push({ type: 'item', data: msgPayload });
-          break;
-        case RPC_TYPE_STREAM_END:
-          queue.push({ type: 'end' });
-          break;
-        case RPC_TYPE_ERROR: {
-          const ebuf = new Buf(msgPayload, 0);
-          const code = decodeVarint(ebuf);
-          const msgLen = decodeVarint(ebuf);
-          const msgBytes = msgPayload.slice(ebuf.offset, ebuf.offset + msgLen);
-          const errMsg = new TextDecoder().decode(msgBytes);
-          queue.push({ type: 'error', error: new RpcError(code, errMsg) });
-          break;
+      const pushEvent = (event: StreamEvent) => {
+        if (pendingStream.waiters.length > 0) {
+          const waiter = pendingStream.waiters.shift()!;
+          waiter(event);
+        } else {
+          pendingStream.queue.push(event);
         }
-        default:
-          queue.push({ type: 'error', error: new RpcError(0, `unknown stream message type: 0x${msgType.toString(16)}`) });
-          break;
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            pushEvent({ type: 'end' });
+            return;
+          }
+
+          // Append chunk to buffer
+          const newBuf = new Uint8Array(buf.length + value.length);
+          newBuf.set(buf);
+          newBuf.set(value, buf.length);
+          buf = newBuf;
+
+          // Try to parse as many complete messages as possible
+          while (true) {
+            if (buf.length === 0) break;
+
+            const sbuf = new Buf(buf, 0);
+            let length: number;
+            try {
+              length = decodeVarint(sbuf);
+            } catch {
+              break; // incomplete varint, wait for more data
+            }
+
+            const headerLen = sbuf.offset;
+            if (buf.length < headerLen + length || length === 0) {
+              break; // incomplete message, wait for more data
+            }
+
+            const msg = buf.slice(headerLen, headerLen + length);
+            buf = buf.slice(headerLen + length);
+
+            const msgType = msg[0];
+            const msgPayload = msg.slice(1);
+
+            let event: StreamEvent;
+            switch (msgType) {
+              case RPC_TYPE_STREAM_ITEM:
+                event = { type: 'item', data: msgPayload };
+                break;
+              case RPC_TYPE_STREAM_END:
+                event = { type: 'end' };
+                break;
+              case RPC_TYPE_ERROR: {
+                const ebuf = new Buf(msgPayload, 0);
+                const code = decodeVarint(ebuf);
+                const msgLen = decodeVarint(ebuf);
+                const msgBytes = msgPayload.slice(ebuf.offset, ebuf.offset + msgLen);
+                const errMsg = new TextDecoder().decode(msgBytes);
+                event = { type: 'error', error: new RpcError(code, errMsg) };
+                break;
+              }
+              default:
+                event = { type: 'error', error: new RpcError(0, `unknown stream message type: 0x${msgType.toString(16)}`) };
+                break;
+            }
+
+            pushEvent(event);
+
+            if (event.type === 'end' || event.type === 'error') {
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        pushEvent({ type: 'error', error: new RpcError(0, (e as Error).message) });
       }
-
-      // Stop after end or error
-      const last = queue[queue.length - 1];
-      if (last.type === 'end' || last.type === 'error') {
-        break;
-      }
-    }
-
-    // If no end marker was found, add one
-    if (queue.length === 0 || (queue[queue.length - 1].type !== 'end' && queue[queue.length - 1].type !== 'error')) {
-      queue.push({ type: 'end' });
-    }
-
-    const pendingStream: PendingStream = { type: 'stream', queue, waiters };
+    })();
 
     return new HttpStreamReceiver(pendingStream);
   }
@@ -715,13 +753,14 @@ export class HttpClient implements ClientTransport {
     return wbuf.toUint8Array();
   }
 
-  private async doRequest(body: Uint8Array): Promise<{ statusCode: number; contentType: string; body: Uint8Array }> {
+  private async doRequest(body: Uint8Array, signal?: AbortSignal): Promise<{ statusCode: number; contentType: string; body: Uint8Array }> {
     const resp = await fetch(this.url, {
       method: 'POST',
       headers: {
         'Content-Type': CONTENT_TYPE_RPC,
       },
       body: body as Uint8Array<ArrayBuffer>,
+      signal,
     });
 
     const respBody = new Uint8Array(await resp.arrayBuffer());
@@ -733,19 +772,14 @@ export class HttpClient implements ClientTransport {
   }
 }
 
-class HttpStreamReceiver {
+class HttpStreamReceiver implements StreamReceiver {
   private pending: PendingStream;
-  private cancelled = false;
 
   constructor(pending: PendingStream) {
     this.pending = pending;
   }
 
   async recv(): Promise<Uint8Array> {
-    if (this.cancelled) {
-      throw RpcError.streamCancelled();
-    }
-
     if (this.pending.queue.length > 0) {
       const event = this.pending.queue.shift()!;
       return this.handleEvent(event);
@@ -766,10 +800,6 @@ class HttpStreamReceiver {
       case 'error':
         throw event.error;
     }
-  }
-
-  async cancel(): Promise<void> {
-    this.cancelled = true;
   }
 }
 

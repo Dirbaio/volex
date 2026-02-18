@@ -262,13 +262,50 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function testCancelUnaryRequest(client: TestServiceClient): Promise<TestResult> {
-  // Start the slow request - we'll let it run but won't wait for it
-  // Note: TypeScript doesn't have built-in cancellation like Go/Rust,
-  // so we just test the server's behavior when the client doesn't read the response
+async function testStreamNotBuffered(client: TestServiceClient): Promise<TestResult> {
+  // Start a slow stream (items every 200ms). The stream is infinite, so if the
+  // client buffers the entire response before delivering items, it will hang forever.
+  const ac = new AbortController();
+  const stream = await client.slow_stream({ delay_ms: 200 }, { signal: ac.signal });
 
-  // For this test, we'll start a slow request and check server status
-  const slowPromise = client.slow_unary({ delay_ms: 5000 });
+  // Receive the first item with a timeout. A properly streaming client delivers
+  // this in ~200ms. A buffering client never delivers it (infinite stream).
+  const first = await Promise.race([
+    stream.recv().then((item) => ({ tag: 'ok' as const, item })),
+    sleep(2000).then(() => ({ tag: 'timeout' as const })),
+  ]);
+  if (first.tag === 'timeout') {
+    return fail('timed out waiting for first stream item — client is likely buffering the response');
+  }
+  if (first.item.seq !== 0) {
+    return fail(`expected seq 0, got ${first.item.seq}`);
+  }
+
+  // Receive a second item to double-check.
+  const second = await Promise.race([
+    stream.recv().then((item) => ({ tag: 'ok' as const, item })),
+    sleep(2000).then(() => ({ tag: 'timeout' as const })),
+  ]);
+  if (second.tag === 'timeout') {
+    return fail('timed out waiting for second stream item');
+  }
+  if (second.item.seq !== 1) {
+    return fail(`expected seq 1, got ${second.item.seq}`);
+  }
+
+  // Abort the stream and wait for the server to process the cancellation,
+  // so we don't leave stale last_status that interferes with later tests.
+  ac.abort();
+  await sleep(50);
+
+  return ok();
+}
+
+async function testCancelUnaryRequest(client: TestServiceClient): Promise<TestResult> {
+  const ac = new AbortController();
+
+  // Start the slow request — we'll cancel it before it completes
+  const slowPromise = client.slow_unary({ delay_ms: 5000 }, { signal: ac.signal });
 
   // Wait a bit for the server to start processing
   await sleep(50);
@@ -279,28 +316,34 @@ async function testCancelUnaryRequest(client: TestServiceClient): Promise<TestRe
     return fail(`expected status 'slow_unary: started', got '${status1}'`);
   }
 
-  // We can't truly cancel in TypeScript without AbortController, but we can test
-  // that the status endpoint works alongside the slow request
+  // Cancel the request
+  ac.abort();
 
-  // For now, just wait for the request to finish (or timeout)
-  // A real implementation would use AbortController
+  // The promise should reject
   try {
-    await Promise.race([
-      slowPromise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 100))
-    ]);
-  } catch {
-    // Expected - we timed out
+    await slowPromise;
+    return fail('expected error after cancellation');
+  } catch (e) {
+    // Expected — aborted
   }
 
-  // Note: without proper cancellation, the server won't see the cancellation
-  // This test verifies at least the concurrent request handling works
+  // Give the server a moment to process the cancellation
+  await sleep(50);
+
+  // Verify server saw the cancellation
+  const status2 = await client.get_status({});
+  if (status2 !== 'slow_unary: canceled') {
+    return fail(`expected status 'slow_unary: canceled', got '${status2}'`);
+  }
+
   return ok();
 }
 
 async function testCancelStreamRequest(client: TestServiceClient): Promise<TestResult> {
+  const ac = new AbortController();
+
   // Start a slow stream (items every 100ms)
-  const stream = await client.slow_stream({ delay_ms: 100 });
+  const stream = await client.slow_stream({ delay_ms: 100 }, { signal: ac.signal });
 
   // Receive a couple items
   for (let i = 0; i < 2; i++) {
@@ -316,20 +359,15 @@ async function testCancelStreamRequest(client: TestServiceClient): Promise<TestR
     return fail(`expected status 'slow_stream: started', got '${status1}'`);
   }
 
-  // Cancel the stream
-  await stream.cancel();
+  // Abort the stream
+  ac.abort();
 
-  // After cancelling, recv() should throw "stream cancelled" error
+  // After aborting, recv() should throw an error
   try {
     await stream.recv();
-    return fail('expected stream cancelled error after cancel()');
-  } catch (e) {
-    if (!(e instanceof RpcError)) {
-      return fail(`expected RpcError, got ${e}`);
-    }
-    if (!e.isStreamCancelled()) {
-      return fail(`expected stream cancelled error, got '${e.message}'`);
-    }
+    return fail('expected error after abort');
+  } catch {
+    // Expected — aborted
   }
 
   // Give the server a moment to process the cancellation
@@ -345,8 +383,10 @@ async function testCancelStreamRequest(client: TestServiceClient): Promise<TestR
 }
 
 async function testCancelWhileRecvWaiting(client: TestServiceClient): Promise<TestResult> {
+  const ac = new AbortController();
+
   // Start a slow stream (items every 500ms - slow enough that we can cancel while waiting)
-  const stream = await client.slow_stream({ delay_ms: 500 });
+  const stream = await client.slow_stream({ delay_ms: 500 }, { signal: ac.signal });
 
   // Receive the first item
   const item = await stream.recv();
@@ -360,25 +400,19 @@ async function testCancelWhileRecvWaiting(client: TestServiceClient): Promise<Te
   // Wait a bit to ensure recv() is actually waiting
   await sleep(50);
 
-  // Cancel the stream while recv() is waiting
-  await stream.cancel();
+  // Abort the stream while recv() is waiting
+  ac.abort();
 
-  // The recv() should immediately throw with stream cancelled error
+  // The recv() should immediately throw (not wait for the 500ms item delay)
   const startTime = Date.now();
   try {
     await recvPromise;
-    return fail('expected stream cancelled error from waiting recv()');
-  } catch (e) {
+    return fail('expected error from waiting recv() after abort');
+  } catch {
     const elapsed = Date.now() - startTime;
-    // Should resolve almost immediately (not wait for the 500ms item delay)
+    // Should resolve almost immediately
     if (elapsed > 100) {
       return fail(`recv() took too long to cancel: ${elapsed}ms`);
-    }
-    if (!(e instanceof RpcError)) {
-      return fail(`expected RpcError, got ${e}`);
-    }
-    if (!e.isStreamCancelled()) {
-      return fail(`expected stream cancelled error, got '${e.message}'`);
     }
   }
 
@@ -410,7 +444,7 @@ async function connectTcp(addr: string): Promise<{ client: TestServiceClient; cl
   return { client, close: () => transport.close() };
 }
 
-async function runAllTests(client: TestServiceClient, skipCancel: boolean): Promise<boolean> {
+async function runAllTests(client: TestServiceClient): Promise<boolean> {
   let allPassed = true;
 
   // Test echo
@@ -436,11 +470,13 @@ async function runAllTests(client: TestServiceClient, skipCancel: boolean): Prom
   allPassed = (await runTest('non-message_add_zero', () => testNonMessageAddZero(client))) && allPassed;
   allPassed = (await runTest('non-message_stream_strings', () => testNonMessageStreamStrings(client))) && allPassed;
 
-  // Test cancellation (skip for HTTP)
-  if (!skipCancel) {
-    allPassed = (await runTest('cancel_stream_request', () => testCancelStreamRequest(client))) && allPassed;
-    allPassed = (await runTest('cancel_while_recv_waiting', () => testCancelWhileRecvWaiting(client))) && allPassed;
-  }
+  // Test that streaming responses are not buffered
+  allPassed = (await runTest('stream_not_buffered', () => testStreamNotBuffered(client))) && allPassed;
+
+  // Test cancellation
+  allPassed = (await runTest('cancel_unary_request', () => testCancelUnaryRequest(client))) && allPassed;
+  allPassed = (await runTest('cancel_stream_request', () => testCancelStreamRequest(client))) && allPassed;
+  allPassed = (await runTest('cancel_while_recv_waiting', () => testCancelWhileRecvWaiting(client))) && allPassed;
 
   return allPassed;
 }
@@ -490,11 +526,9 @@ async function main() {
       throw new Error(`unknown transport: ${transportType}`);
   }
 
-  const skipCancel = transportType === 'http';
-
   console.log('Running TypeScript client tests...');
 
-  const allPassed = await runAllTests(client, skipCancel);
+  const allPassed = await runAllTests(client);
 
   // Close the connection
   close();

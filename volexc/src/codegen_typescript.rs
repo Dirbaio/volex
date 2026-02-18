@@ -800,7 +800,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     writeln!(self.output, "  /** Calls the {} method. */", method_name).unwrap();
                     writeln!(
                         self.output,
-                        "  async {}(req: {}): Promise<{}> {{",
+                        "  async {}(req: {}, options?: __rpc.CallOptions): Promise<{}> {{",
                         method_name, request_type, response_type
                     )
                     .unwrap();
@@ -812,7 +812,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     // Make the call
                     writeln!(
                         self.output,
-                        "    const respBuf = await this.transport.callUnary({}, reqBuf.toUint8Array());",
+                        "    const respBuf = await this.transport.callUnary({}, reqBuf.toUint8Array(), options);",
                         index
                     )
                     .unwrap();
@@ -833,7 +833,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     .unwrap();
                     writeln!(
                         self.output,
-                        "  async {}(req: {}): Promise<{}{}Stream> {{",
+                        "  async {}(req: {}, options?: __rpc.CallOptions): Promise<{}{}Stream> {{",
                         method_name,
                         request_type,
                         service_name,
@@ -848,7 +848,7 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                     // Make the call
                     writeln!(
                         self.output,
-                        "    const receiver = await this.transport.callStream({}, reqBuf.toUint8Array());",
+                        "    const receiver = await this.transport.callStream({}, reqBuf.toUint8Array(), options);",
                         index
                     )
                     .unwrap();
@@ -897,12 +897,6 @@ impl<'a> TypeScriptCodeGenerator<'a> {
                 writeln!(self.output, "    const buf = new __rt.Buf(data, 0);").unwrap();
                 self.decode_for_service(resp_ty, 2);
                 writeln!(self.output, "    return resp;").unwrap();
-                writeln!(self.output, "  }}").unwrap();
-                self.output.push('\n');
-
-                writeln!(self.output, "  /** Cancels the stream. */").unwrap();
-                writeln!(self.output, "  async cancel(): Promise<void> {{").unwrap();
-                writeln!(self.output, "    return this.receiver.cancel();").unwrap();
                 writeln!(self.output, "  }}").unwrap();
                 writeln!(self.output, "}}").unwrap();
                 self.output.push('\n');

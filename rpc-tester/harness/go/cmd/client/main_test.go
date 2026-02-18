@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -9,8 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"rpc_test/gen"
+
+	"github.com/gorilla/websocket"
 
 	volex "github.com/volex/runtime"
 )
@@ -60,13 +62,11 @@ func TestRPC(t *testing.T) {
 	defer cancel()
 
 	var client *gen.TestServiceClient
-	skipCancel := false
 	switch transportType {
 	case "tcp":
 		client = connectTCP(t, addr, ctx)
 	case "http":
 		client = connectHTTP(addr)
-		skipCancel = true
 	case "ws":
 		client = connectWS(t, addr, ctx)
 	default:
@@ -310,10 +310,71 @@ func TestRPC(t *testing.T) {
 		}
 	})
 
-	// Test cancellation (skip for HTTP)
-	if skipCancel {
-		return
-	}
+	// Test that streaming responses are not buffered
+	t.Run("stream not buffered", func(t *testing.T) {
+		// Use a sub-context so we can cancel the stream and clean up.
+		streamCtx, streamCancel := context.WithCancel(ctx)
+
+		// Start a slow stream (items every 200ms). The stream is infinite, so if the
+		// client buffers the entire response before delivering items, it will hang forever.
+		stream, err := client.SlowStream(streamCtx, gen.SlowRequest{DelayMs: 200})
+		if err != nil {
+			streamCancel()
+			t.Fatalf("SlowStream failed: %v", err)
+		}
+
+		// Receive the first item with a timeout. A properly streaming client delivers
+		// this in ~200ms. A buffering client never delivers it (infinite stream).
+		done := make(chan struct{})
+		var item gen.StreamItem
+		var recvErr error
+		go func() {
+			item, recvErr = stream.Recv()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			if recvErr != nil {
+				streamCancel()
+				t.Fatalf("Recv failed: %v", recvErr)
+			}
+			if item.Seq != 0 {
+				t.Errorf("expected seq 0, got %d", item.Seq)
+			}
+		case <-time.After(2 * time.Second):
+			streamCancel()
+			t.Fatal("timed out waiting for first stream item — client is likely buffering the response")
+		}
+
+		// Receive a second item to double-check.
+		done2 := make(chan struct{})
+		go func() {
+			item, recvErr = stream.Recv()
+			close(done2)
+		}()
+
+		select {
+		case <-done2:
+			if recvErr != nil {
+				streamCancel()
+				t.Fatalf("Recv failed: %v", recvErr)
+			}
+			if item.Seq != 1 {
+				t.Errorf("expected seq 1, got %d", item.Seq)
+			}
+		case <-time.After(2 * time.Second):
+			streamCancel()
+			t.Fatal("timed out waiting for second stream item")
+		}
+
+		// Cancel the stream and wait for the server to process the cancellation,
+		// so we don't leave stale lastStatus that interferes with later tests.
+		streamCancel()
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	// Test cancellation
 	t.Run("cancel unary request", func(t *testing.T) {
 		// Create a context that we'll cancel quickly
 		cancelCtx, cancelFunc := context.WithCancel(ctx)
@@ -354,7 +415,7 @@ func TestRPC(t *testing.T) {
 		if callErr == nil {
 			t.Fatal("expected error after cancellation")
 		}
-		if callErr != context.Canceled {
+		if !errors.Is(callErr, context.Canceled) {
 			t.Errorf("expected context.Canceled, got %v", callErr)
 		}
 
@@ -409,7 +470,7 @@ func TestRPC(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error after cancellation")
 		}
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("expected context.Canceled, got %v", err)
 		}
 

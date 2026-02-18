@@ -66,7 +66,6 @@ async fn connect_ws(url: &str) -> Result<Client<Rc<PacketClient<WebSocketTranspo
 
 async fn run_tests<Tr: volex::rpc::ClientTransport + 'static>(
     client: &Client<Tr>,
-    skip_cancel: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Running Rust client tests...");
 
@@ -99,11 +98,12 @@ async fn run_tests<Tr: volex::rpc::ClientTransport + 'static>(
         test_non_message_stream_strings(client).await,
     );
 
-    // Test cancellation (skip for HTTP — no persistent connection for cancel signaling)
-    if !skip_cancel {
-        run_test("cancel_unary_request", test_cancel_unary_request(client).await);
-        run_test("cancel_stream_request", test_cancel_stream_request(client).await);
-    }
+    // Test that streaming responses are not buffered
+    run_test("stream_not_buffered", test_stream_not_buffered(client).await);
+
+    // Test cancellation
+    run_test("cancel_unary_request", test_cancel_unary_request(client).await);
+    run_test("cancel_stream_request", test_cancel_stream_request(client).await);
 
     println!("All tests passed!");
     Ok(())
@@ -120,15 +120,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match transport.as_str() {
                 "tcp" => {
                     let client = connect_tcp(&addr).await?;
-                    run_tests(&client, false).await
+                    run_tests(&client).await
                 }
                 "http" => {
                     let client = connect_http(&addr);
-                    run_tests(&client, true).await
+                    run_tests(&client).await
                 }
                 "ws" => {
                     let client = connect_ws(&addr).await?;
-                    run_tests(&client, false).await
+                    run_tests(&client).await
                 }
                 other => Err(format!("unknown transport: {}", other).into()),
             }
@@ -341,6 +341,35 @@ async fn test_non_message_stream_strings<Tr: volex::rpc::ClientTransport>(client
     if !err.is_stream_closed() {
         return Err(format!("expected stream closed error, got {:?}", err).into());
     }
+    Ok(())
+}
+
+async fn test_stream_not_buffered<Tr: volex::rpc::ClientTransport>(client: &Client<Tr>) -> TestResult {
+    // Start a slow stream (items every 200ms). The stream is infinite, so if the
+    // client buffers the entire response before delivering items, it will hang forever.
+    let mut stream = client.slow_stream(SlowRequest { delay_ms: 200 }).await?;
+
+    // Receive the first item with a timeout. A properly streaming client delivers
+    // this in ~200ms. A buffering client never delivers it (infinite stream).
+    let first = tokio::time::timeout(Duration::from_secs(2), stream.recv()).await;
+    let item =
+        first.map_err(|_| "timed out waiting for first stream item — client is likely buffering the response")??;
+    if item.seq != 0 {
+        return Err(format!("expected seq 0, got {}", item.seq).into());
+    }
+
+    // Receive a second item to double-check.
+    let second = tokio::time::timeout(Duration::from_secs(2), stream.recv()).await;
+    let item = second.map_err(|_| "timed out waiting for second stream item")??;
+    if item.seq != 1 {
+        return Err(format!("expected seq 1, got {}", item.seq).into());
+    }
+
+    // Drop the stream and wait for the server to process the cancellation,
+    // so we don't leave stale last_status that interferes with later tests.
+    drop(stream);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
     Ok(())
 }
 
