@@ -1331,33 +1331,35 @@ mod http_transport {
 
     /// HTTP RPC server. Listens on a TCP port and dispatches RPC calls to a handler.
     pub struct HttpServer<H: ServerHandler + 'static> {
-        _phantom: PhantomData<H>,
+        listener: tokio::net::TcpListener,
+        handler: Rc<H>,
     }
 
     impl<H: ServerHandler + 'static> HttpServer<H> {
-        /// Creates a new HTTP server and starts listening.
-        pub async fn new(listener: tokio::net::TcpListener, handler: Rc<H>) -> Self {
-            tokio::task::spawn_local(async move {
-                loop {
-                    let (stream, _) = match listener.accept().await {
-                        Ok(v) => v,
-                        Err(_) => return,
-                    };
-                    let _ = stream.set_nodelay(true);
-                    let io = TokioIo::new(stream);
-                    let svc = RpcService {
-                        handler: handler.clone(),
-                    };
-                    tokio::task::spawn_local(async move {
-                        let _ = hyper::server::conn::http1::Builder::new()
-                            .serve_connection(io, svc)
-                            .await;
-                    });
-                }
-            });
+        /// Creates a new HTTP server.
+        pub fn new(listener: tokio::net::TcpListener, handler: Rc<H>) -> Self {
+            Self { listener, handler }
+        }
 
-            Self {
-                _phantom: PhantomData,
+        /// Runs the server's accept loop.
+        ///
+        /// It blocks until the listener is closed or an error occurs.
+        pub async fn run(&self) {
+            loop {
+                let (stream, _) = match self.listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                let _ = stream.set_nodelay(true);
+                let io = TokioIo::new(stream);
+                let svc = RpcService {
+                    handler: self.handler.clone(),
+                };
+                tokio::task::spawn_local(async move {
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
             }
         }
     }

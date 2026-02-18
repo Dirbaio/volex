@@ -173,10 +173,8 @@ async fn serve_http() -> Result<(), Box<dyn std::error::Error>> {
     println!("http://{}/rpc", addr);
 
     let handler = Rc::new(TestServiceHandler::new(TestServiceImpl::new()));
-    let _server = HttpServer::new(listener, handler).await;
-
-    // Keep running forever
-    std::future::pending::<()>().await;
+    let server = HttpServer::new(listener, handler);
+    server.run().await;
     Ok(())
 }
 
