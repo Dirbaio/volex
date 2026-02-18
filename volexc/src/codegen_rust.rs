@@ -69,14 +69,6 @@ impl<'a> CodeGenerator<'a> {
         self.output.push_str("use volex as __rt;\n");
         self.output.push_str("use __rt::Decode as _;\n");
 
-        let has_services = self
-            .schema
-            .items
-            .iter()
-            .any(|item| matches!(&item.node, Item::Service(_)));
-        if has_services {
-            self.output.push_str("use __rt::rpc::ServerCall as _;\n");
-        }
         self.output.push('\n');
 
         for item in &self.schema.items {
@@ -697,32 +689,51 @@ impl<'a> CodeGenerator<'a> {
         }
         writeln!(self.output, "}}\n").unwrap();
 
-        // Generate the server function
-        writeln!(self.output, "/// Serves the {} service.", service_name).unwrap();
+        // Generate the handler struct
         writeln!(
             self.output,
-            "pub async fn serve_{}<Tr: __rt::rpc::ServerTransport<Call: 'static>, T: {} + 'static>(transport: &Tr, impl_: ::std::rc::Rc<T>) -> ::core::result::Result<(), __rt::rpc::RpcError> {{",
-            to_snake_case(service_name), service_name
-        )
-        .unwrap();
-        writeln!(self.output, "    loop {{").unwrap();
-        writeln!(self.output, "        let mut call = transport.accept().await?;").unwrap();
-        writeln!(self.output, "        let impl_ = impl_.clone();").unwrap();
-        writeln!(
-            self.output,
-            "        let cancel_rx = __rt::rpc::ServerCall::take_cancel_rx(&mut call);"
+            "/// Handler that wraps a {} implementation as a [`__rt::rpc::ServerHandler`].",
+            service_name
         )
         .unwrap();
         writeln!(
             self.output,
-            "        __rt::rpc::spawn_cancellable(cancel_rx, async move {{"
+            "pub struct {}Handler<T: {} + 'static> {{",
+            service_name, service_name
+        )
+        .unwrap();
+        writeln!(self.output, "    impl_: T,").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        writeln!(
+            self.output,
+            "impl<T: {} + 'static> {}Handler<T> {{",
+            service_name, service_name
         )
         .unwrap();
         writeln!(
             self.output,
-            "        match __rt::rpc::ServerCall::method_index(&call) {{"
+            "    /// Creates a new handler for the {} service.",
+            service_name
         )
         .unwrap();
+        writeln!(self.output, "    pub fn new(impl_: T) -> Self {{").unwrap();
+        writeln!(self.output, "        Self {{ impl_ }}").unwrap();
+        writeln!(self.output, "    }}").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
+
+        writeln!(
+            self.output,
+            "impl<T: {} + 'static> __rt::rpc::ServerHandler for {}Handler<T> {{",
+            service_name, service_name
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "    async fn handle_call(&self, call: __rt::rpc::ServerCallContext) {{"
+        )
+        .unwrap();
+        writeln!(self.output, "        match call.method_index() {{").unwrap();
 
         for method in &s.methods {
             let method_name = &method.name.node;
@@ -733,7 +744,7 @@ impl<'a> CodeGenerator<'a> {
                     writeln!(self.output, "            {} => {{", index).unwrap();
                     writeln!(
                         self.output,
-                        "                let mut buf = __rt::rpc::ServerCall::payload(&call);"
+                        "                let mut buf = call.payload();"
                     )
                     .unwrap();
                     writeln!(
@@ -752,7 +763,7 @@ impl<'a> CodeGenerator<'a> {
                     writeln!(self.output, "                        return;").unwrap();
                     writeln!(self.output, "                    }}").unwrap();
                     writeln!(self.output, "                }};").unwrap();
-                    writeln!(self.output, "                match impl_.{}(req).await {{", method_name).unwrap();
+                    writeln!(self.output, "                match self.impl_.{}(req).await {{", method_name).unwrap();
                     writeln!(
                         self.output,
                         "                    ::core::result::Result::Ok(resp) => {{"
@@ -784,7 +795,7 @@ impl<'a> CodeGenerator<'a> {
                     writeln!(self.output, "            {} => {{", index).unwrap();
                     writeln!(
                         self.output,
-                        "                let mut buf = __rt::rpc::ServerCall::payload(&call);"
+                        "                let mut buf = call.payload();"
                     )
                     .unwrap();
                     writeln!(
@@ -809,7 +820,7 @@ impl<'a> CodeGenerator<'a> {
                         self.rust_type(resp_ty)
                     )
                     .unwrap();
-                    writeln!(self.output, "                impl_.{}(req, stream).await;", method_name).unwrap();
+                    writeln!(self.output, "                self.impl_.{}(req, stream).await;", method_name).unwrap();
                     writeln!(self.output, "            }}").unwrap();
                 }
             }
@@ -823,7 +834,6 @@ impl<'a> CodeGenerator<'a> {
         .unwrap();
         writeln!(self.output, "            }}").unwrap();
         writeln!(self.output, "        }}").unwrap();
-        writeln!(self.output, "        }});").unwrap();
         writeln!(self.output, "    }}").unwrap();
         writeln!(self.output, "}}\n").unwrap();
 
@@ -1020,21 +1030,6 @@ impl<'a> CodeGenerator<'a> {
         )
         .unwrap();
     }
-}
-
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.extend(c.to_lowercase());
-        } else {
-            result.push(c);
-        }
-    }
-    result
 }
 
 fn to_pascal_case(s: &str) -> String {

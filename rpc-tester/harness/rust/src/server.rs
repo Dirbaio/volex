@@ -156,13 +156,11 @@ async fn serve_tcp() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let transport = TcpTransport::new(stream);
-        let server = PacketServer::new(transport);
-        let impl_ = Rc::new(TestServiceImpl::new());
+        let handler = Rc::new(TestServiceHandler::new(TestServiceImpl::new()));
+        let server = PacketServer::new(transport, handler);
 
         tokio::task::spawn_local(async move {
-            let run_fut = server.run();
-            let serve_fut = serve_test_service(&server, impl_);
-            let _ = tokio::join!(run_fut, serve_fut);
+            let _ = server.run().await;
         });
     }
 }
@@ -174,9 +172,11 @@ async fn serve_http() -> Result<(), Box<dyn std::error::Error>> {
     // Print the URL for the client to connect to
     println!("http://{}/rpc", addr);
 
-    let server = HttpServer::new(listener).await;
-    let impl_ = Rc::new(TestServiceImpl::new());
-    let _ = serve_test_service(&server, impl_).await;
+    let handler = Rc::new(TestServiceHandler::new(TestServiceImpl::new()));
+    let _server = HttpServer::new(listener, handler).await;
+
+    // Keep running forever
+    std::future::pending::<()>().await;
     Ok(())
 }
 
@@ -191,13 +191,11 @@ async fn serve_ws() -> Result<(), Box<dyn std::error::Error>> {
         let (stream, _) = listener.accept().await?;
         let ws = tokio_tungstenite::accept_async(stream).await?;
         let transport = WebSocketTransport::new(ws);
-        let server = PacketServer::new(transport);
-        let impl_ = Rc::new(TestServiceImpl::new());
+        let handler = Rc::new(TestServiceHandler::new(TestServiceImpl::new()));
+        let server = PacketServer::new(transport, handler);
 
         tokio::task::spawn_local(async move {
-            let run_fut = server.run();
-            let serve_fut = serve_test_service(&server, impl_);
-            let _ = tokio::join!(run_fut, serve_fut);
+            let _ = server.run().await;
         });
     }
 }
